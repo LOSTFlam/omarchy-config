@@ -11,21 +11,6 @@
           "mode": "Aurora"
         },
         {
-          "id": "crmne.lyrics"
-        },
-        {
-          "format": "HH:mm",
-          "formatAlt": "d MMMM 'W'ww yyyy",
-          "id": "omarchy.clock",
-          "verticalFormat": "HH\n—\nmm"
-        },
-        {
-          "id": "omarchy.system-update"
-        },
-        {
-          "id": "omarchy.keyboard-layout"
-        },
-        {
           "audioQuality": "320 kbps",
           "clientId": "",
           "deviceName": "Omarchy Spotify",
@@ -44,6 +29,21 @@
           "showPausedTrack": "On",
           "showTrackTitle": "On",
           "showVinylRecord": "Off"
+        },
+        {
+          "id": "crmne.lyrics"
+        },
+        {
+          "format": "HH:mm",
+          "formatAlt": "d MMMM 'W'ww yyyy",
+          "id": "omarchy.clock",
+          "verticalFormat": "HH\n—\nmm"
+        },
+        {
+          "id": "omarchy.system-update"
+        },
+        {
+          "id": "omarchy.keyboard-layout"
         },
         {
           "id": "prusso.bisaiko"
