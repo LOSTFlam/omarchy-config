@@ -1650,14 +1650,15 @@ Column {
                         width: resetState.implicitWidth + Style.space(20)
                         height: resetState.implicitHeight + Style.space(10)
                         radius: Style.space(4)
+                        readonly property bool warning: resetRow.stage > 0 || resetAction.containsMouse
                         color: "transparent"
-                        border.color: root.urgent
+                        border.color: warning ? root.urgent : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
                         border.width: 1
 
                         Text {
                             id: resetState
                             text: resetRow.stage === 0 ? "RESET" : resetRow.stage === 1 ? "SURE?" : "REALLY?"
-                            color: root.urgent
+                            color: resetBox.warning ? root.urgent : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6)
                             font.family: root.fontFamily
                             font.pixelSize: Style.font.bodySmall
                             font.bold: true
@@ -1673,27 +1674,27 @@ Column {
                             anchors.top: parent.top
                             anchors.right: parent.right
                         }
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: resetBox
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        if (resetRow.stage >= 2) {
-                            resetRow.stage = 0;
-                            resetRevertTimer.stop();
-                            root.resetRequested();
-                        } else {
-                            resetRow.stage++;
-                            resetRevertTimer.restart();
-                        }
-                    }
-                    onContainsMouseChanged: {
-                        if (!containsMouse && resetRow.stage > 0) {
-                            resetRow.stage = 0;
-                            resetRevertTimer.stop();
+                        MouseArea {
+                            id: resetAction
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (resetRow.stage >= 2) {
+                                    resetRow.stage = 0;
+                                    resetRevertTimer.stop();
+                                    root.resetRequested();
+                                } else {
+                                    resetRow.stage++;
+                                    resetRevertTimer.restart();
+                                }
+                            }
+                            onContainsMouseChanged: {
+                                if (!containsMouse && resetRow.stage > 0) {
+                                    resetRow.stage = 0;
+                                    resetRevertTimer.stop();
+                                }
+                            }
                         }
                     }
                 }
@@ -1757,14 +1758,15 @@ Column {
                         width: wipeState.implicitWidth + Style.space(20)
                         height: wipeState.implicitHeight + Style.space(10)
                         radius: Style.space(4)
-                        color: wipeRow.stage >= 2 ? Qt.rgba(root.urgent.r, root.urgent.g, root.urgent.b, 0.15) : "transparent"
-                        border.color: root.urgent
+                        readonly property bool warning: wipeRow.stage > 0 || wipeAction.containsMouse
+                        color: warning ? Qt.rgba(root.urgent.r, root.urgent.g, root.urgent.b, wipeRow.stage >= 2 ? 0.15 : 0.08) : "transparent"
+                        border.color: warning ? root.urgent : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
                         border.width: wipeRow.stage >= 2 ? 2 : 1
 
                         Text {
                             id: wipeState
                             text: wipeRow.stage === 0 ? "WIPE ALL" : wipeRow.stage === 1 ? "SURE?" : wipeRow.stage === 2 ? "CAN'T UNDO!" : "WIPE!"
-                            color: root.urgent
+                            color: wipeBox.warning ? root.urgent : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6)
                             font.family: root.fontFamily
                             font.pixelSize: Style.font.bodySmall
                             font.bold: true
@@ -1780,27 +1782,27 @@ Column {
                             anchors.top: parent.top
                             anchors.right: parent.right
                         }
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: wipeBox
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        if (wipeRow.stage >= 3) {
-                            wipeRow.stage = 0;
-                            wipeRevertTimer.stop();
-                            root.wipeRequested();
-                        } else {
-                            wipeRow.stage++;
-                            wipeRevertTimer.restart();
-                        }
-                    }
-                    onContainsMouseChanged: {
-                        if (!containsMouse && wipeRow.stage > 0) {
-                            wipeRow.stage = 0;
-                            wipeRevertTimer.stop();
+                        MouseArea {
+                            id: wipeAction
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (wipeRow.stage >= 3) {
+                                    wipeRow.stage = 0;
+                                    wipeRevertTimer.stop();
+                                    root.wipeRequested();
+                                } else {
+                                    wipeRow.stage++;
+                                    wipeRevertTimer.restart();
+                                }
+                            }
+                            onContainsMouseChanged: {
+                                if (!containsMouse && wipeRow.stage > 0) {
+                                    wipeRow.stage = 0;
+                                    wipeRevertTimer.stop();
+                                }
+                            }
                         }
                     }
                 }

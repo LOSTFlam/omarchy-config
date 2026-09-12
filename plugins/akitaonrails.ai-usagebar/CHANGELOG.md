@@ -9,6 +9,31 @@ Each release is also published at
 
 ## [Unreleased]
 
+## [1.17.0] — 2026-09-12
+
+### Added
+
+- **Custom provider brand marks.** A `[[custom]]` provider can set
+  `brand = "<vendor slug>"` to use a built-in vendor's mark in the Omarchy
+  widget. The brand is chosen explicitly and need not match the provider URL;
+  leaving it unset keeps the custom provider's three-letter tag.
+
+- **Versioned usage JSON.** Both aggregate and single-provider `usage --json`
+  reports now include top-level `"schema_version": 1`. The documented contract
+  remains tolerant: consumers ignore unknown fields and treat absent fields as
+  not applicable; the version changes only for incompatible shapes.
+
+### Fixed
+
+- **Antigravity works while the `agy` CLI is running.** When `agy` exposes a
+  local RPC server but rejects quota probes because its CSRF token is not
+  discoverable, ai-usagebar now uses the saved Google session fallback. Other
+  local `401`/`403` responses still surface as signed-out errors.
+
+- **Release-integrity checks now run on pull requests.** CI fetches the tag
+  history and runs the existing immutable-changelog and version check before
+  changes can reach `main`.
+
 ## [1.16.0] — 2026-09-11
 
 ### Added
@@ -2363,7 +2388,8 @@ vendors. Highlights:
 - Live API smoke test suite (`make smoke`) that exercises the real
   undocumented endpoints to detect schema drift before users do.
 
-[Unreleased]: https://github.com/akitaonrails/ai-usagebar/compare/v1.16.0...HEAD
+[Unreleased]: https://github.com/akitaonrails/ai-usagebar/compare/v1.17.0...HEAD
+[1.17.0]: https://github.com/akitaonrails/ai-usagebar/compare/v1.16.0...v1.17.0
 [1.16.0]: https://github.com/akitaonrails/ai-usagebar/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/akitaonrails/ai-usagebar/compare/v1.14.0...v1.15.0
 [1.14.0]: https://github.com/akitaonrails/ai-usagebar/compare/v1.13.0...v1.14.0

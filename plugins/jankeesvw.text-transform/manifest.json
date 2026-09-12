@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "jankeesvw.text-transform",
+  "name": "Text Transform",
+  "version": "1.2.0",
+  "author": "Jankees van Woezik",
+  "description": "Rewrite, translate or fix text with the coding agent Omarchy already runs.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Text Transform",
+    "description": "Rewrite, translate or fix text with the coding agent Omarchy already runs.",
+    "category": "Apps",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

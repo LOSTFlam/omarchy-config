@@ -58,6 +58,9 @@
         },
         {
           "id": "gladimdim.config-sync"
+        },
+        {
+          "id": "agx.screen-time"
         }
       ],
       "right": [
@@ -66,9 +69,6 @@
         },
         {
           "id": "omarchy.spacer"
-        },
-        {
-          "id": "agx.screen-time"
         },
         {
           "id": "alexzeitler.ytdlp"
@@ -147,6 +147,9 @@
         },
         {
           "id": "omarchy.agents"
+        },
+        {
+          "id": "jankeesvw.text-transform"
         },
         {
           "id": "jobo.omatype"
