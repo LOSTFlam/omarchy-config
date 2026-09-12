@@ -1,0 +1,98 @@
+#!/bin/bash
+# omasettings — the state reader and mutator behind the OmaSettings window.
+#
+# The window stays declarative: it asks for `state` as one JSON document and
+# calls a subcommand for every change. Everything that shells out lives in
+# lib/, one module per thing being configured:
+#
+#   core.sh          paths, file writing, first-touch backups
+#   store.sh         OmaSettings' own store of what it has set
+#   hypr.sh          Hyprland options, live and in a generated config
+#   devices.sh       per-device input settings (Hyprland's hl.device)
+#   monitors.sh      displays: resolution and scale, per screen (keyed by the
+#                    display's own description, not the connector it is in)
+#   shell_config.sh  ~/.config/omarchy/shell.json
+#   compose.sh       ~/.XCompose
+#   plugins.sh       installed shell plugins
+#   menu.sh          the Omarchy menu definition: groups, actions, icon fonts
+#   herdr.sh         ~/.config/herdr/config.toml
+#   tmux.sh          ~/.config/tmux/tmux.conf
+#   neovim.sh        ~/.config/nvim/lua/config/options.lua
+#   bindings.sh      Hyprland keybindings
+#   wifi.sh          NetworkManager
+#   bluetooth.sh     BlueZ, through Omarchy's power and device wrappers
+#   power.sh         battery reading and the per-source power profile
+#   audio.sh         outputs, inputs, volume and mute
+#   setters.sh       the `set` subcommand's routing
+#   state.sh         one JSON document assembled from all of the above
+
+set -uo pipefail
+
+OMASETTINGS_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)"
+# A detached update re-enters here, so this script has to be able to name
+# itself: it is started from the window's own copy, which is not on any PATH.
+OMASETTINGS_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+
+for module in core store hypr devices monitors workspaces shell_config compose plugins menu herdr tmux neovim bindings wifi bluetooth power audio setters state; do
+  # shellcheck source=/dev/null
+  source "$OMASETTINGS_LIB/$module.sh"
+done
+unset module
+
+# Whatever a subcommand prints is retained and parsed by a shell that lives as
+# long as the bar does, so the last word on how much of it can arrive belongs
+# here rather than to any one producer.
+main() {
+case ${1:-state} in
+  state) shift; state "$@" ;;
+  set) shift; set_key "$@" ;;
+  reset) shift; setting_reset "${1:-}" ;;
+  plugin) shift; plugin_cmd "$@" ;;
+  bar) shift; bar_cmd "$@" ;;
+  search) search_index ;;
+  compose) shift; compose_cmd "$@" ;;
+  agents) shift; agents_cmd "$@" ;;
+  herdr) shift; herdr_cmd "$@" ;;
+  tmux|nvim) app_cmd "$@" ;;
+  keys) shift; keys_cmd "$@" ;;
+  workspaces) shift; workspaces_cmd "$@" ;;
+  devices) shift; devices_cmd "$@" ;;
+  wifi) shift; wifi_cmd "$@" ;;
+  bluetooth) shift; bluetooth_cmd "$@" ;;
+  power) shift; power_cmd "$@" ;;
+  audio) shift; audio_cmd "$@" ;;
+  menu) shift; [[ ${1:-} == run ]] || die "usage: omasettings menu run <entry-id>"; menu_run "${2:-}" ;;
+  *)
+    cat >&2 <<'USAGE'
+usage:
+  omasettings state
+  omasettings set <key> <value>
+  omasettings reset <key>|--all           (puts a setting back the way it was found)
+  omasettings plugin enable|disable|remove|update <id> | plugin updates
+  omasettings compose list | add "<Multi_key> <a> <b>" "text" | remove "<Multi_key> <a> <b>"
+  omasettings agents list | run <agent-id>
+  omasettings plugin self | plugin self-check     (is this window itself behind?)
+  omasettings search                      (every setting the pages declare, for the search box)
+  omasettings bar move <widget-id> left|center|right | bar shift <widget-id> up|down
+                 | bar enable|disable <widget-id>   (in or out of the bar, settings and place kept)
+  omasettings menu run <entry-id>            (runs an Omarchy menu entry's action)
+  omasettings herdr state | set <key> <value>
+  omasettings tmux state | tmux set <option> <value>
+  omasettings nvim state | nvim set <option> <value>
+  omasettings devices state | set <device> <option> <value> keyboard|pointer
+                 | clear <device> [option] | remove <device>
+  omasettings workspaces state | add <class> | set <class> <field> <value> | remove <class>
+                 | setup add <n> | setup set <n> <field> <value> | setup remove <n>
+  omasettings keys list | add "<KEYS>" "<description>" "<command>" | remove "<KEYS>" | disable "<KEYS>"
+  omasettings audio state | audio watch | default output|input <device> | volume output|input <percent>
+                 | mute output|input on|off|toggle
+  omasettings power state | power watch | profile ac|battery <power-saver|balanced|performance>
+  omasettings bluetooth state | power on|off | scan | poll | pair|connect|disconnect|forget <address>
+  omasettings wifi list | rescan | poll | connect <ssid> [password] | disconnect | forget <ssid>
+                 | radio on|off | band auto|2.4|5|6
+USAGE
+    exit 1 ;;
+esac
+}
+
+main "$@" | head -c "$OMASETTINGS_READ_MAX"

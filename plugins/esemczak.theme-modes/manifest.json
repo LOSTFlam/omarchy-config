@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "esemczak.theme-modes",
+  "name": "Theme modes",
+  "version": "1.0.0",
+  "author": "esemczak",
+  "license": "MIT",
+  "description": "Separate light and dark Omarchy themes with per-mode backgrounds, manual switching, and optional automatic mode by schedule or battery.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Theme modes",
+    "description": "Pick light/dark themes and backgrounds, switch manually, or follow schedule and battery.",
+    "category": "Appearance",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

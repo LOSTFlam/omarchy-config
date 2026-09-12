@@ -1,0 +1,456 @@
+/* ==========================================================================
+   omacord - base layer
+   Maps the Omarchy palette onto Discord's colour tokens.
+
+   Every value reads through var(--omacord-*, <fallback>) exactly once, in
+   the alias block below. If the palette file is missing or a theme omits a
+   key, the fallback (Tokyo Night) applies and Discord stays readable.
+
+   Selectors avoid Discord's hashed class suffixes (.foo__1a2b3) wherever a
+   stable attribute or semantic selector exists, since those hashes change
+   on every Discord build.
+   ========================================================================== */
+
+:root {
+  --oc-s0: var(--omacord-s0, #0e0e14);
+  /* s1 and s2 are crossed on purpose. The palette orders surfaces from
+     recessed to raised, but Discord reads better with the chat on the
+     theme's own background and the secondary surfaces a step down from it,
+     so the two roles are exchanged here, once, rather than at each of the
+     several dozen tokens built on them. */
+  --oc-s1: var(--omacord-s2, #1a1b26);
+  --oc-s2: var(--omacord-s1, #13141c);
+  --oc-s3: var(--omacord-s3, #24283b);
+  --oc-s4: var(--omacord-s4, #2a2f45);
+
+  --oc-tx: var(--omacord-tx, #a9b1d6);
+  --oc-tx-strong: var(--omacord-tx-strong, #c0caf5);
+  --oc-tx-dim: var(--omacord-tx-dim, #565f89);
+  --oc-tx-faint: var(--omacord-tx-faint, #414868);
+
+  --oc-accent: var(--omacord-accent, #7aa2f7);
+  --oc-accent-hover: var(--omacord-accent-hover, #8fb0f8);
+  --oc-accent-dim: var(--omacord-accent-dim, #3f4a6b);
+  --oc-accent-faint: var(--omacord-accent-faint, #22283a);
+  --oc-on-accent: var(--omacord-on-accent, #1a1b26);
+
+  --oc-border: var(--omacord-border, #414868);
+  --oc-border-strong: var(--omacord-border-strong, #565f89);
+  --oc-hover: var(--omacord-hover, #24283b);
+  --oc-active: var(--omacord-active, #2a2f45);
+
+  /* Channel triplets, for the tokens Discord defines with alpha. */
+  --oc-fg-rgb: var(--omacord-fg-rgb, 169,177,214);
+  --oc-bg-rgb: var(--omacord-bg-rgb, 26,27,38);
+  --oc-accent-rgb: var(--omacord-accent-rgb, 122,162,247);
+
+  --oc-sel: var(--omacord-sel, #292e42);
+  --oc-sel-fg: var(--omacord-sel-fg, #c0caf5);
+
+  --oc-red: var(--omacord-red, #f7768e);
+  --oc-green: var(--omacord-green, #9ece6a);
+  --oc-yellow: var(--omacord-yellow, #e0af68);
+  --oc-orange: var(--omacord-orange, #eb927b);
+  --oc-blue: var(--omacord-blue, #7aa2f7);
+  --oc-cyan: var(--omacord-cyan, #449dab);
+  --oc-magenta: var(--omacord-magenta, #ad8ee6);
+
+  color-scheme: var(--omacord-scheme, dark);
+}
+
+/* --------------------------------------------------------------------------
+   Colour tokens. Applied to every Discord theme class so the retint holds
+   regardless of which appearance the user has selected in Discord itself,
+   and to .visual-refresh for the current token generation.
+   -------------------------------------------------------------------------- */
+
+.theme-light,
+.theme-dark,
+.theme-darker,
+.theme-midnight,
+.visual-refresh {
+  /* Base surfaces */
+  --background-primary: var(--oc-s2) !important;
+  --background-secondary: var(--oc-s1) !important;
+  --background-secondary-alt: var(--oc-s1) !important;
+  --background-tertiary: var(--oc-s0) !important;
+  --background-accent: var(--oc-accent) !important;
+  --background-floating: var(--oc-s3) !important;
+  --background-nested-floating: var(--oc-s3) !important;
+  --background-message-hover: rgba(var(--oc-fg-rgb), 0.04) !important;
+  --background-message-highlight: rgba(var(--oc-accent-rgb), 0.10) !important;
+  --background-message-highlight-hover: rgba(var(--oc-accent-rgb), 0.15) !important;
+  --background-mentioned: rgba(var(--oc-accent-rgb), 0.10) !important;
+  --background-mentioned-hover: rgba(var(--oc-accent-rgb), 0.15) !important;
+  --background-modifier-hover: rgba(var(--oc-fg-rgb), 0.08) !important;
+  --background-modifier-active: rgba(var(--oc-fg-rgb), 0.12) !important;
+  --background-modifier-selected: rgba(var(--oc-fg-rgb), 0.16) !important;
+  --background-modifier-accent: rgba(var(--oc-fg-rgb), 0.10) !important;
+  --background-surface-high: var(--oc-s3) !important;
+  --background-surface-higher: var(--oc-s3) !important;
+  --background-surface-highest: var(--oc-s4) !important;
+  --background-base-low: var(--oc-s2) !important;
+  --background-base-lower: var(--oc-s1) !important;
+  --background-base-lowest: var(--oc-s0) !important;
+  --background-base-tertiary: var(--oc-s0) !important;
+  --background-code: var(--oc-s0) !important;
+  --background-mod-subtle: rgba(var(--oc-fg-rgb), 0.08) !important;
+  --background-mod-strong: rgba(var(--oc-fg-rgb), 0.16) !important;
+  --home-background: var(--oc-s1) !important;
+  --activity-card-background: var(--oc-s3) !important;
+  --chat-background-default: var(--oc-s2) !important;
+  --modal-background: var(--oc-s2) !important;
+  --modal-footer-background: var(--oc-s1) !important;
+  --card-primary-bg: var(--oc-s3) !important;
+  --theme-base-color: var(--oc-s0) !important;
+  --user-profile-overlay-background: var(--oc-s1) !important;
+  --profile-body-background-color: var(--oc-s2) !important;
+
+  /* Visual-refresh surface tokens */
+  --bg-base-primary: var(--oc-s2) !important;
+  --bg-base-secondary: var(--oc-s1) !important;
+  --bg-base-tertiary: var(--oc-s0) !important;
+  --bg-surface-raised: var(--oc-s3) !important;
+  --bg-surface-overlay: var(--oc-s2) !important;
+  --bg-overlay-2: var(--oc-s3) !important;
+  --bg-overlay-3: var(--oc-s3) !important;
+  --bg-overlay-chat: var(--oc-s2) !important;
+  --bg-overlay-app-frame: var(--oc-s0) !important;
+  --bg-mod-faint: rgba(var(--oc-fg-rgb), 0.04) !important;
+  --bg-mod-subtle: rgba(var(--oc-fg-rgb), 0.08) !important;
+  --bg-mod-strong: rgba(var(--oc-fg-rgb), 0.16) !important;
+  --bg-brand: var(--oc-accent) !important;
+
+  /* Borders */
+  --border-faint: var(--oc-border) !important;
+  --border-subtle: var(--oc-border) !important;
+  --border-strong: var(--oc-border-strong) !important;
+  --border-normal: var(--oc-border) !important;
+
+  /* Text */
+  --text-normal: var(--oc-tx) !important;
+  --text-default: var(--oc-tx) !important;
+  --text-primary: var(--oc-tx) !important;
+  --text-secondary: var(--oc-tx-dim) !important;
+  --text-tertiary: var(--oc-tx-faint) !important;
+  --text-muted: var(--oc-tx-dim) !important;
+  --text-faint: var(--oc-tx-faint) !important;
+  --text-link: var(--oc-accent) !important;
+  --text-link-low-saturation: var(--oc-accent) !important;
+  --text-brand: var(--oc-accent) !important;
+  --header-primary: var(--oc-tx-strong) !important;
+  --header-secondary: var(--oc-tx-dim) !important;
+  --channels-default: var(--oc-tx-dim) !important;
+  --channel-icon: var(--oc-tx-dim) !important;
+  --chat-text-muted: var(--oc-tx-faint) !important;
+  --textbox-markdown-syntax: var(--oc-tx-dim) !important;
+  --white: var(--oc-tx-strong) !important;
+  --white-100: var(--oc-tx-strong) !important;
+  --white-200: var(--oc-tx-strong) !important;
+  --white-500: var(--oc-tx-strong) !important;
+  --black: var(--oc-s0) !important;
+
+  /* Interactive */
+  --interactive-normal: var(--oc-tx) !important;
+  --interactive-hover: var(--oc-tx-strong) !important;
+  --interactive-active: var(--oc-tx-strong) !important;
+  --interactive-muted: var(--oc-tx-faint) !important;
+  --menu-item-default-hover-bg: var(--oc-hover) !important;
+  --menu-item-danger-hover-bg: var(--oc-red) !important;
+  --menu-item-danger-active-bg: var(--oc-red) !important;
+
+  /* Brand -> accent. Discord scatters the blurple across a numbered ramp;
+     every step has to land on the accent or blurple leaks back in. */
+  --brand-experiment: var(--oc-accent) !important;
+  --brand-experiment-100: var(--oc-accent) !important;
+  --brand-experiment-200: var(--oc-accent) !important;
+  --brand-experiment-300: var(--oc-accent) !important;
+  --brand-experiment-360: var(--oc-accent) !important;
+  --brand-experiment-400: var(--oc-accent) !important;
+  --brand-experiment-500: var(--oc-accent) !important;
+  --brand-experiment-560: var(--oc-accent) !important;
+  --brand-experiment-600: var(--oc-accent-hover) !important;
+  --brand-experiment-700: var(--oc-accent-hover) !important;
+  --brand-experiment-800: var(--oc-accent-hover) !important;
+  --brand-experiment-900: var(--oc-accent-hover) !important;
+  --brand-experiment-05a: rgba(var(--oc-accent-rgb), 0.05) !important;
+  --brand-experiment-10a: rgba(var(--oc-accent-rgb), 0.10) !important;
+  --brand-experiment-15a: rgba(var(--oc-accent-rgb), 0.15) !important;
+  --brand-experiment-20a: rgba(var(--oc-accent-rgb), 0.20) !important;
+  --brand-experiment-30a: rgba(var(--oc-accent-rgb), 0.30) !important;
+  --brand-260: var(--oc-accent) !important;
+  --brand-360: var(--oc-accent) !important;
+  --brand-500: var(--oc-accent) !important;
+  --brand-560: var(--oc-accent-hover) !important;
+  --brand-05a: rgba(var(--oc-accent-rgb), 0.05) !important;
+  --brand-10a: rgba(var(--oc-accent-rgb), 0.10) !important;
+  --brand-15a: rgba(var(--oc-accent-rgb), 0.15) !important;
+  --blurple-50: var(--oc-accent) !important;
+  --mention-background: var(--oc-accent-faint) !important;
+  --mention-foreground: var(--oc-accent) !important;
+  --control-brand-foreground: var(--oc-accent) !important;
+  --control-brand-foreground-new: var(--oc-accent) !important;
+
+  /* Buttons */
+  --button-filled-brand-background: var(--oc-accent) !important;
+  --button-filled-brand-background-hover: var(--oc-accent-hover) !important;
+  --button-filled-brand-text: var(--oc-on-accent) !important;
+  --button-filled-brand-text-hover: var(--oc-on-accent) !important;
+  --button-secondary-background: var(--oc-s3) !important;
+  --button-secondary-background-hover: var(--oc-s4) !important;
+  --button-secondary-background-disabled: var(--oc-s3) !important;
+  --button-secondary-text: var(--oc-tx) !important;
+  --button-danger-background: var(--oc-red) !important;
+  --button-danger-background-hover: var(--oc-red) !important;
+  --button-danger-background-disabled: var(--oc-s3) !important;
+  --button-positive-background: var(--oc-green) !important;
+  --button-positive-background-hover: var(--oc-green) !important;
+  --button-positive-background-disabled: var(--oc-s3) !important;
+  --button-outline-positive-border: var(--oc-green) !important;
+  --button-outline-danger-border-hover: var(--oc-red) !important;
+  --button-outline-danger-background-hover: var(--oc-red) !important;
+
+  /* Inputs */
+  --input-background: var(--oc-s3) !important;
+  --input-border: var(--oc-border) !important;
+  --input-placeholder-text: var(--oc-tx-faint) !important;
+  --channeltextarea-background: var(--oc-s3) !important;
+  --channel-text-area-placeholder: var(--oc-tx-faint) !important;
+  --deprecated-text-input-bg: var(--oc-s3) !important;
+  --deprecated-text-input-border: var(--oc-border) !important;
+  --checkbox-background-checked: var(--oc-accent) !important;
+  --checkbox-border-checked: var(--oc-accent) !important;
+  --checkbox-background-default: var(--oc-s3) !important;
+  --checkbox-border-default: var(--oc-border) !important;
+  --redesign-input-control-selected: var(--oc-accent) !important;
+
+  /* Status */
+  --status-positive: var(--oc-green) !important;
+  --status-positive-text: var(--oc-green) !important;
+  --status-positive-background: var(--oc-green) !important;
+  --status-success: var(--oc-green) !important;
+  --status-warning: var(--oc-yellow) !important;
+  --status-warning-background: var(--oc-yellow) !important;
+  --status-danger: var(--oc-red) !important;
+  --status-danger-background: var(--oc-red) !important;
+  --status-negative: var(--oc-red) !important;
+  --text-positive: var(--oc-green) !important;
+  --text-warning: var(--oc-yellow) !important;
+  --text-negative: var(--oc-red) !important;
+  --text-feedback-positive: var(--oc-green) !important;
+  --text-feedback-success: var(--oc-green) !important;
+  --text-feedback-warning: var(--oc-yellow) !important;
+  --text-feedback-negative: var(--oc-red) !important;
+  --info-warning-foreground: var(--oc-yellow) !important;
+  --notice-background-positive: var(--oc-green) !important;
+  --notice-background-warning: var(--oc-yellow) !important;
+  --notice-background-negative: var(--oc-red) !important;
+  --notice-text-positive: var(--oc-s0) !important;
+  --notice-text-warning: var(--oc-s0) !important;
+  --notice-text-negative: var(--oc-s0) !important;
+  --polls-victor-fill: var(--oc-green) !important;
+
+  /* Discord's hardcoded hue ramps, so stray literals follow the theme */
+  --red: var(--oc-red) !important;
+  --red-400: var(--oc-red) !important;
+  --red-430: var(--oc-red) !important;
+  --red-460: var(--oc-red) !important;
+  --red-500: var(--oc-red) !important;
+  --red-630: var(--oc-red) !important;
+  --green-300: var(--oc-green) !important;
+  --green-330: var(--oc-green) !important;
+  --green-360: var(--oc-green) !important;
+  --green-430: var(--oc-green) !important;
+  --yellow-300: var(--oc-yellow) !important;
+  --yellow-360: var(--oc-yellow) !important;
+  --teal-430: var(--oc-cyan) !important;
+  --primary-130: var(--oc-tx-strong) !important;
+  --primary-300: var(--oc-tx) !important;
+  --primary-360: var(--oc-tx-dim) !important;
+  --primary-400: var(--oc-tx-dim) !important;
+  --primary-500: var(--oc-s4) !important;
+  --primary-600: var(--oc-s2) !important;
+  --primary-630: var(--oc-s2) !important;
+  --primary-660: var(--oc-s1) !important;
+  --primary-700: var(--oc-s1) !important;
+  --primary-800: var(--oc-s0) !important;
+
+  /* Scrollbars */
+  --scrollbar-auto-thumb: var(--oc-border) !important;
+  --scrollbar-auto-track: transparent !important;
+  --scrollbar-auto-scrollbar-color-thumb: var(--oc-border) !important;
+  --scrollbar-auto-scrollbar-color-track: transparent !important;
+  --scrollbar-thin-thumb: var(--oc-border) !important;
+  --scrollbar-thin-track: transparent !important;
+  --custom-scrollbar-thin-thumb: var(--oc-border) !important;
+
+  /* Visual-refresh text and interactive families.
+     Discord defines these with color-mix(in oklab, hsl(...)) rather than by
+     reusing the older tokens, so they are unaffected by anything above and
+     have to be named individually. --text-strong is the one that colours
+     usernames and headings: left alone it stays white, which is invisible on
+     a light theme and simply unthemed on a dark one. */
+  --text-strong: var(--oc-tx-strong) !important;
+  --text-subtle: var(--oc-tx-dim) !important;
+  --text-invert: var(--oc-s2) !important;
+
+  --interactive-text-default: var(--oc-tx) !important;
+  --interactive-text-hover: var(--oc-tx-strong) !important;
+  --interactive-text-active: var(--oc-tx-strong) !important;
+  --interactive-icon-default: var(--oc-tx-dim) !important;
+  --interactive-icon-hover: var(--oc-tx) !important;
+  --interactive-icon-active: var(--oc-tx-strong) !important;
+  --interactive-background-default: transparent !important;
+  --interactive-background-hover: rgba(var(--oc-fg-rgb), 0.08) !important;
+  --interactive-background-active: rgba(var(--oc-fg-rgb), 0.12) !important;
+  --interactive-background-selected: rgba(var(--oc-fg-rgb), 0.16) !important;
+  --interactive-accent-background-default: var(--oc-accent) !important;
+  --interactive-accent-background-hover: var(--oc-accent-hover) !important;
+  --interactive-accent-background-active: var(--oc-accent-hover) !important;
+  --interactive-accent-background-selected: var(--oc-accent) !important;
+
+  --text-status-online: var(--oc-green) !important;
+  --text-status-idle: var(--oc-yellow) !important;
+  --text-status-dnd: var(--oc-red) !important;
+  --text-status-offline: var(--oc-tx-faint) !important;
+  --text-voice-connected: var(--oc-green) !important;
+  --text-voice-speaking: var(--oc-green) !important;
+  --text-voice-disconnected: var(--oc-red) !important;
+  --text-feedback-critical: var(--oc-red) !important;
+  --text-feedback-info: var(--oc-blue) !important;
+
+  /* Code blocks pick up the terminal's syntax colours. */
+  --text-code: var(--oc-tx) !important;
+  --text-code-comment: var(--oc-tx-faint) !important;
+  --text-code-keyword: var(--oc-magenta) !important;
+  --text-code-string: var(--oc-green) !important;
+  --text-code-number: var(--oc-orange) !important;
+  --text-code-builtin: var(--oc-cyan) !important;
+  --text-code-property: var(--oc-cyan) !important;
+  --text-code-tag: var(--oc-magenta) !important;
+  --text-code-type: var(--oc-yellow) !important;
+  --text-code-variable: var(--oc-tx) !important;
+  --text-code-title: var(--oc-blue) !important;
+  --text-code-attribute: var(--oc-green) !important;
+  --text-code-link: var(--oc-blue) !important;
+  --text-code-namespace: var(--oc-blue) !important;
+  --text-code-addition: var(--oc-green) !important;
+  --text-code-deletion: var(--oc-red) !important;
+  --text-code-error: var(--oc-red) !important;
+  --text-code-escape: var(--oc-magenta) !important;
+  --text-code-operator: var(--oc-cyan) !important;
+  --text-code-regexp: var(--oc-green) !important;
+  --text-code-section: var(--oc-red) !important;
+  --text-code-bullet: var(--oc-blue) !important;
+  --text-code-decorator: var(--oc-yellow) !important;
+
+  /* Misc */
+  --search-popout-option-fade: none !important;
+  --search-popout-option-non-text-color: var(--oc-tx) !important;
+  --message-reacted-background: var(--oc-accent-faint) !important;
+  --message-reacted-text: var(--oc-accent) !important;
+  --guild-boosting-pink: var(--oc-magenta) !important;
+  --__lottieIconColor: var(--oc-tx-dim) !important;
+}
+
+/* --------------------------------------------------------------------------
+   Structure. Only rules that need a selector live here; anything expressible
+   as a token belongs above. Attribute-prefix selectors ([class*="foo_"]) are
+   used because Discord's hashed suffixes change between builds.
+   -------------------------------------------------------------------------- */
+
+/* Text selection follows the terminal's selection colours. */
+::selection {
+  background: var(--oc-sel) !important;
+  color: var(--oc-sel-fg) !important;
+}
+
+/* Profile and banner gradients flatten to a plain surface: they exist to
+   tint a header, and a themed flat colour reads better than a stretched
+   brand gradient. */
+[class*="bannerGradient_"],
+[class*="profileBannerPreview_"] {
+  background-image: none !important;
+  background-color: var(--oc-s1) !important;
+}
+
+/* The voice-call backdrop is NOT flattened. Discord uses gradientContainer_
+   for the soft vignette behind a call, and removing the gradient makes the
+   call view collapse into one solid block with no falloff. Retint the stops
+   and keep the shape. */
+[class*="gradientContainer_"] {
+  background-image:
+    radial-gradient(120% 90% at 50% 0%,
+      var(--oc-s2) 0%,
+      var(--oc-s1) 45%,
+      var(--oc-s0) 100%) !important;
+}
+
+/* Base under the call vignette only. videoWrapper_ is deliberately left
+   alone: video paints over it anyway, and filling it opaque hides the
+   translucent tile treatment Discord layers on top. */
+[class*="callContainer_"] {
+  background-color: var(--oc-s0) !important;
+}
+
+/* Monochrome icons that Discord hardcodes to white. */
+[class*="closeIcon_"] path,
+[class*="circleIconButton_"] {
+  color: var(--oc-tx) !important;
+}
+
+/* Unread and mention affordances take the accent rather than blurple. */
+[class*="unreadPill_"],
+[class*="numberBadge_"],
+[class*="textBadge_"] {
+  color: var(--oc-on-accent) !important;
+}
+
+.mention.interactive:hover,
+[class*="mention"][class*="interactive"]:hover {
+  background-color: var(--oc-accent) !important;
+  color: var(--oc-on-accent) !important;
+}
+
+/* Code blocks and spoilers sit on the deepest surface, matching the
+   terminal's own background rather than floating a lighter grey. */
+code,
+pre,
+[class*="markup_"] code,
+[class*="spoilerContent_"] {
+  background-color: var(--oc-s0) !important;
+  border-color: var(--oc-border) !important;
+}
+
+/* ANSI codeblock highlighting maps onto the terminal's own 8 colours -
+   the same palette these escape codes render as in Alacritty. */
+.hljs-ansi-foreground-red    { color: var(--oc-red) !important; }
+.hljs-ansi-foreground-green  { color: var(--oc-green) !important; }
+.hljs-ansi-foreground-yellow { color: var(--oc-yellow) !important; }
+.hljs-ansi-foreground-blue   { color: var(--oc-blue) !important; }
+.hljs-ansi-foreground-magenta{ color: var(--oc-magenta) !important; }
+.hljs-ansi-foreground-cyan   { color: var(--oc-cyan) !important; }
+.hljs-keyword,
+.hljs-selector-tag           { color: var(--oc-magenta) !important; }
+.hljs-string,
+.hljs-attr                   { color: var(--oc-green) !important; }
+.hljs-number,
+.hljs-literal                { color: var(--oc-orange) !important; }
+.hljs-comment                { color: var(--oc-tx-faint) !important; }
+.hljs-title,
+.hljs-function               { color: var(--oc-blue) !important; }
+
+/* Discord renders folder colours from inline styles; neutralise the
+   default so folders inherit the accent instead of blurple. */
+[class*="folderIconWrapper_"] {
+  background-color: var(--oc-s3) !important;
+}
+[class*="folderGroupBackground_"] {
+  border: none !important;
+}
+
+/* Legibility, carried over from the Omarchy terminal defaults. */
+* {
+  text-rendering: optimizeLegibility;
+}
+

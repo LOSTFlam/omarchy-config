@@ -1,0 +1,42 @@
+/* omacord layer: rounded
+   Corner radii matched to Omarchy's Hyprland `decoration:rounding`, so
+   Discord's panels agree with every other window on the desktop. */
+
+:root {
+  --oc-radius: 10px;
+  --oc-radius-sm: 6px;
+  --oc-radius-lg: 14px;
+}
+
+[class*="chat_"],
+[class*="content_"] > [class*="chatContent_"],
+[class*="container_"][class*="panels_"],
+[class*="membersWrap_"],
+[class*="sidebar_"] {
+  border-radius: var(--oc-radius) !important;
+}
+
+[class*="modal_"],
+[class*="root_"][role="dialog"],
+[class*="menu_"][role="menu"],
+[class*="layer_"] > [class*="popout"],
+[class*="autocomplete_"] {
+  border-radius: var(--oc-radius-lg) !important;
+  overflow: hidden;
+}
+
+[class*="channel_"] [class*="link_"],
+[class*="listItem_"] > [class*="wrapper_"],
+[class*="searchBar_"],
+[class*="button_"],
+button[class*="lookFilled_"],
+button[class*="lookOutlined_"] {
+  border-radius: var(--oc-radius-sm) !important;
+}
+
+/* Avatar images only. Deliberately NOT the SVG foreignObject Discord
+   masks avatars with - animated avatars render inside it, and a
+   border-radius there is a clipping hazard for no visual gain. */
+[class*="avatar_"] img {
+  border-radius: var(--oc-radius-sm) !important;
+}

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "co.klair.wallarchy",
+  "name": "Wallarchy",
+  "version": "0.1.0",
+  "author": "perminder-klair",
+  "license": "MIT",
+  "description": "Browse Wallhaven by category or tag, set any wallpaper as your Omarchy background, and rotate on a timer.",
+  "homepage": "https://github.com/perminder-klair/wallarchy",
+  "repository": "https://github.com/perminder-klair/wallarchy",
+  "keywords": [
+    "wallpaper",
+    "background",
+    "wallhaven",
+    "photos"
+  ],
+  "kinds": [
+    "bar-widget",
+    "overlay",
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "overlay": "Browser.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Wallarchy",
+    "description": "Wallhaven wallpaper browser and rotation",
+    "category": "Appearance",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "showLabel": false
+    },
+    "schema": [
+      {
+        "key": "showLabel",
+        "type": "boolean",
+        "label": "Show wallpaper size in the bar",
+        "defaultValue": false,
+        "description": "Filters and the rotation interval live in the browser overlay (~/.config/omarchy/wallarchy.json), not here \u2014 they are shared with the rotation service and the CLI."
+      }
+    ]
+  }
+}

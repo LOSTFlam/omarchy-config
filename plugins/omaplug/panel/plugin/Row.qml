@@ -1,0 +1,382 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import qs.Commons
+import qs.Ui
+import "../Presentation.js" as Presentation
+
+Item {
+  id: pluginRow
+
+  required property var modelData
+  required property int index
+  required property int rowCount
+  required property var marketplaceEntry
+  required property string localCommit
+  required property string repoUrl
+  required property bool repoKnown
+  required property string updateState
+  required property bool removeSelectMode
+  required property bool selectedForRemoval
+  required property bool removingPlugin
+  required property bool pluginEnabled
+  required property bool updateRunning
+  required property string updatingId
+  required property string icon
+  required property var knownKinds
+  required property color foreground
+  required property string fontFamily
+
+  signal removalSelectionRequested(string pluginId)
+  signal enabledChangeRequested(string pluginId, bool enabled)
+  signal openUrlRequested(string url)
+  signal sourceRequested(string sourceKey)
+  signal updateRequested(string sourceKey)
+  signal menuRequested(string pluginId, var sourceItem, real x, real y)
+
+  readonly property bool listed: marketplaceEntry !== null
+  readonly property bool verified: listed && marketplaceEntry.verified === true
+  readonly property bool updateUnverified: listed && !verified
+    && marketplaceEntry.snapshotStatus === "update-unverified"
+  readonly property string authorUrl: modelData.firstParty ? "" : Presentation.authorUrl(repoUrl)
+  readonly property string kindLabel: Presentation.kindLabel(modelData.kinds, knownKinds)
+
+  height: card.height + Style.space(9)
+
+  Rectangle {
+    id: card
+
+    width: parent.width
+    height: Math.max(Style.space(72), content.implicitHeight + Style.space(24))
+    clip: true
+    radius: Style.cornerRadius > 0 ? Style.cornerRadius : 4
+    color: hover.hovered
+      ? Style.hoverFillFor(pluginRow.foreground, Color.accent)
+      : "transparent"
+
+    RowLayout {
+      id: content
+
+      anchors.fill: parent
+      anchors.leftMargin: Style.space(10)
+      anchors.topMargin: Style.space(10)
+      anchors.rightMargin: Style.space(10)
+      anchors.bottomMargin: Style.space(10)
+      spacing: Style.space(10)
+
+      Button {
+        visible: pluginRow.removeSelectMode
+        text: pluginRow.selectedForRemoval ? "\uf14a" : "\uf0c8"
+        tooltipText: "Select plugin for removal"
+        enabled: !pluginRow.removingPlugin
+        Layout.alignment: Qt.AlignVCenter
+        foreground: pluginRow.foreground
+        accent: Color.accent
+        fontFamily: pluginRow.fontFamily
+        fontSize: Style.font.bodySmall
+        horizontalPadding: Style.space(6)
+        verticalPadding: Style.space(3)
+        onClicked: pluginRow.removalSelectionRequested(pluginRow.modelData.id)
+      }
+
+      Item {
+        Layout.preferredWidth: Style.space(28)
+        Layout.preferredHeight: Style.space(28)
+
+        Rectangle {
+          x: 0
+          y: 0
+          width: Style.space(28)
+          height: Style.space(28)
+          radius: 6
+          clip: true
+          color: Presentation.iconColor(pluginRow.modelData.name)
+
+          Text {
+            anchors.centerIn: parent
+            width: parent.width - 4
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+            maximumLineCount: 1
+            text: pluginRow.icon || pluginRow.modelData.name.trim().charAt(0).toUpperCase()
+            textFormat: Text.PlainText
+            color: "white"
+            font.family: pluginRow.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            font.bold: true
+          }
+        }
+
+        Rectangle {
+          visible: pluginRow.updateState === "UPDATE"
+          x: -2
+          y: -2
+          width: 8
+          height: 8
+          radius: 4
+          color: Color.accent
+          border.color: pluginRow.foreground
+          border.width: 1
+          z: 1
+        }
+      }
+
+      ColumnLayout {
+        // preferredWidth 0 + fillWidth: take leftover row space instead of the
+        // description's single-line implicitWidth (otherwise Wrap/Elide never
+        // bind and card.clip cuts mid-word with no ellipsis).
+        Layout.fillWidth: true
+        Layout.preferredWidth: 0
+        Layout.minimumWidth: 0
+        Layout.alignment: Qt.AlignVCenter
+        spacing: Style.space(2)
+
+        Item {
+          id: nameRow
+          Layout.fillWidth: true
+          implicitHeight: Math.max(nameLabel.implicitHeight,
+            verificationBadge.visible ? verificationBadge.implicitHeight : 0,
+            versionLabel.visible ? versionLabel.implicitHeight : 0)
+          readonly property real spacing: Style.space(8)
+
+          Label {
+            id: nameLabel
+            text: pluginRow.modelData.name
+            textFormat: Text.PlainText
+            color: pluginRow.foreground
+            font.family: pluginRow.fontFamily
+            font.pixelSize: Style.font.body
+            font.bold: true
+            // Keep short names adjacent to their metadata. Long names use
+            // only the space left after the badge/version, then elide.
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            width: Math.min(implicitWidth, Math.max(0, nameRow.width
+              - (verificationBadge.visible ? verificationBadge.implicitWidth + nameRow.spacing : 0)
+              - (versionLabel.visible ? versionLabel.implicitWidth + nameRow.spacing : 0)))
+            elide: Label.ElideRight
+
+            // Full name only when elided · matches author/ListingLinks ToolTip style.
+            ToolTip.text: truncated ? text : ""
+            ToolTip.visible: nameHover.hovered && truncated
+            ToolTip.delay: 400
+
+            HoverHandler {
+              id: nameHover
+            }
+          }
+
+          Rectangle {
+            id: verificationBadge
+            visible: pluginRow.listed
+            anchors.left: nameLabel.right
+            anchors.leftMargin: nameRow.spacing
+            anchors.verticalCenter: parent.verticalCenter
+            radius: height / 2
+            implicitWidth: badgeContent.implicitWidth + Style.space(10)
+            implicitHeight: Style.space(16)
+            color: pluginRow.updateUnverified
+              ? Qt.rgba(0.85, 0.65, 0.13, 0.18)
+              : pluginRow.verified
+                ? Util.alpha(Color.accent, 0.18)
+              : Qt.rgba(pluginRow.foreground.r, pluginRow.foreground.g, pluginRow.foreground.b, 0.08)
+
+            Row {
+              id: badgeContent
+              anchors.centerIn: parent
+              spacing: Style.space(3)
+
+              Text {
+                visible: pluginRow.verified && !pluginRow.updateUnverified
+                text: "\uf058"
+                textFormat: Text.PlainText
+                color: Color.accent
+                font.family: pluginRow.fontFamily
+                font.pixelSize: Style.font.caption - 1
+                anchors.verticalCenter: parent.verticalCenter
+              }
+
+              Text {
+                visible: pluginRow.updateUnverified
+                text: "\uf071"
+                textFormat: Text.PlainText
+                color: Qt.hsla(0.12, 0.75, 0.55, 1)
+                font.family: pluginRow.fontFamily
+                font.pixelSize: Style.font.caption - 1
+                anchors.verticalCenter: parent.verticalCenter
+              }
+
+              Text {
+                text: pluginRow.updateUnverified ? "Update Unverified" : pluginRow.verified ? "Verified" : "Unverified"
+                textFormat: Text.PlainText
+                color: pluginRow.updateUnverified ? Qt.hsla(0.12, 0.75, 0.55, 1)
+                  : pluginRow.verified ? Color.accent
+                  : Qt.darker(pluginRow.foreground, 2.0)
+                font.family: pluginRow.fontFamily
+                font.pixelSize: Style.font.caption - 1
+                anchors.verticalCenter: parent.verticalCenter
+              }
+            }
+          }
+
+          Label {
+            id: versionLabel
+            visible: pluginRow.modelData.version !== "unknown"
+            anchors.left: verificationBadge.visible ? verificationBadge.right : nameLabel.right
+            anchors.leftMargin: nameRow.spacing
+            anchors.verticalCenter: parent.verticalCenter
+            text: "v" + pluginRow.modelData.version
+            textFormat: Text.PlainText
+            color: Qt.darker(pluginRow.foreground, 2.0)
+            font.family: pluginRow.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+        }
+
+        Label {
+          id: descriptionLabel
+          text: pluginRow.modelData.description !== "" ? pluginRow.modelData.description : "No description"
+          textFormat: Text.PlainText
+          color: Qt.darker(pluginRow.foreground, 1.6)
+          font.family: pluginRow.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          Layout.fillWidth: true
+          Layout.preferredWidth: 0
+          Layout.minimumWidth: 0
+          wrapMode: Label.Wrap
+          maximumLineCount: 2
+          elide: Label.ElideRight
+
+          ToolTip.text: truncated ? text : ""
+          ToolTip.visible: descriptionHover.hovered && truncated
+          ToolTip.delay: 400
+
+          HoverHandler {
+            id: descriptionHover
+          }
+        }
+
+        RowLayout {
+          visible: pluginRow.modelData.author !== ""
+          spacing: Style.space(6)
+          Layout.fillWidth: true
+
+          Text {
+            text: "by " + pluginRow.modelData.author + (pluginRow.authorUrl !== "" ? " ↗" : "")
+            Layout.minimumWidth: 0
+            elide: Text.ElideRight
+            textFormat: Text.PlainText
+            color: pluginRow.authorUrl !== "" ? Color.accent : Qt.darker(pluginRow.foreground, 2.0)
+            font.family: pluginRow.fontFamily
+            font.pixelSize: Style.font.caption
+            font.underline: authorHover.hovered && pluginRow.authorUrl !== ""
+
+            ToolTip.text: pluginRow.authorUrl !== "" ? pluginRow.authorUrl : ("by " + pluginRow.modelData.author)
+            ToolTip.visible: authorHover.hovered
+            ToolTip.delay: 400
+
+            HoverHandler {
+              id: authorHover
+              cursorShape: pluginRow.authorUrl !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              enabled: pluginRow.authorUrl !== ""
+              cursorShape: Qt.PointingHandCursor
+              onClicked: pluginRow.openUrlRequested(pluginRow.authorUrl)
+            }
+          }
+
+          Text {
+            visible: pluginRow.kindLabel !== ""
+            text: "·"
+            textFormat: Text.PlainText
+            color: Qt.darker(pluginRow.foreground, 2.0)
+            font.family: pluginRow.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          Label {
+            visible: pluginRow.kindLabel !== ""
+            text: pluginRow.kindLabel
+            textFormat: Text.PlainText
+            color: Qt.darker(pluginRow.foreground, 2.0)
+            font.family: pluginRow.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Label.ElideRight
+            Layout.minimumWidth: 0
+            Layout.alignment: Qt.AlignRight
+          }
+
+          Item {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+          }
+        }
+
+        ListingLinks {
+          visible: pluginRow.listed
+          pluginId: pluginRow.modelData.id
+          entry: pluginRow.marketplaceEntry
+          localCommit: pluginRow.localCommit
+          repoUrl: pluginRow.repoUrl
+          foreground: pluginRow.foreground
+          fontFamily: pluginRow.fontFamily
+          onOpenUrlRequested: function(url) { pluginRow.openUrlRequested(url) }
+        }
+      }
+
+      Actions {
+        plugin: pluginRow.modelData
+        pluginEnabled: pluginRow.pluginEnabled
+        repoKnown: pluginRow.repoKnown
+        updateState: pluginRow.updateState
+        updateRunning: pluginRow.updateRunning
+        updatingId: pluginRow.updatingId
+        foreground: pluginRow.foreground
+        fontFamily: pluginRow.fontFamily
+        onEnabledChangeRequested: function(enabled) {
+          pluginRow.enabledChangeRequested(pluginRow.modelData.id, enabled)
+        }
+        onSourceRequested: function(sourceKey) { pluginRow.sourceRequested(sourceKey) }
+        onUpdateRequested: function(sourceKey) { pluginRow.updateRequested(sourceKey) }
+        onMenuRequested: function(sourceItem, x, y) {
+          pluginRow.menuRequested(pluginRow.modelData.id, sourceItem, x, y)
+        }
+      }
+    }
+
+    HoverHandler {
+      id: hover
+    }
+
+    TapHandler {
+      id: contextTap
+      acceptedButtons: Qt.RightButton
+      onTapped: function(eventPoint) {
+        pluginRow.menuRequested(
+          pluginRow.modelData.id,
+          card,
+          eventPoint.position.x,
+          eventPoint.position.y
+        )
+      }
+    }
+  }
+
+  Rectangle {
+    visible: pluginRow.index < pluginRow.rowCount - 1
+    anchors.top: card.bottom
+    anchors.topMargin: Style.space(4)
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.leftMargin: Style.space(10)
+    anchors.rightMargin: Style.space(10)
+    height: 1
+    color: Qt.rgba(pluginRow.foreground.r, pluginRow.foreground.g, pluginRow.foreground.b, 0.12)
+  }
+}

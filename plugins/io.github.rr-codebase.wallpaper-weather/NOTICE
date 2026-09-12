@@ -1,0 +1,23 @@
+Osaka Jade Weather
+Copyright (c) 2026 Ruan Roos (github.com/RR-CodeBase)
+
+This product includes software developed by the Omarchy project
+(https://omarchy.org).
+
+--------------------------------------------------------------------------
+Background.qml
+--------------------------------------------------------------------------
+
+`Background.qml` is a derivative work of the `omarchy.background` plugin from
+Omarchy, Copyright (c) Omarchy contributors, licensed under the MIT License.
+
+From the original: the wallpaper renderer, the background transition and reveal
+machinery, the per-screen layer-shell panels, and the click handling that opens
+the background and theme switchers.
+
+Added in this derivative: the drift and parallax transform on the photo layer,
+the mood colour grade applied over it, and the mounting of WeatherState and
+WeatherFx.
+
+The MIT License covering both the original and this derivative is reproduced in
+LICENSE. Omarchy's own copy of its licence is distributed with Omarchy.

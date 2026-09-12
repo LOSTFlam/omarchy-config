@@ -1,0 +1,1113 @@
+#!/usr/bin/python3
+"""Emit a versioned, machine-readable snapshot of trainable Hyprland binds.
+
+The helper intentionally parses ``hyprctl binds``' plain output. Hyprland
+versions in current Omarchy releases have shipped malformed JSON for edge-case
+arguments, while the plain block format remains stable and preserves flags.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ctypes
+import hashlib
+import json
+import os
+import pwd
+import re
+import selectors
+import signal
+import stat
+import subprocess
+import sys
+import time
+import unicodedata
+from pathlib import Path
+from typing import Any
+
+SCHEMA_VERSION = 1
+COMMAND_TIMEOUT_SECONDS = 3.0
+MAX_COMMAND_STDOUT_BYTES = 4 * 1024 * 1024
+MAX_COMMAND_STDERR_BYTES = 64 * 1024
+MAX_FIXTURE_BYTES = 4 * 1024 * 1024
+MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
+MAX_BINDINGS = 2000
+FIELD_LIMITS = {
+    "key": 128,
+    "dispatcher": 128,
+    "arg": 2048,
+    "description": 512,
+    "submap": 128,
+}
+MAX_FLAGS = 16
+MAX_KEYCODE = 65535
+MAX_MODMASK = 2**31 - 1
+
+HEADER_FLAGS = {
+    "l": "locked",
+    "r": "release",
+    "c": "click",
+    "g": "drag",
+    "o": "long-press",
+    "e": "repeat",
+    "n": "non-consuming",
+    "m": "mouse",
+    "t": "transparent",
+    "i": "ignore-mods",
+    "s": "separate",
+    "d": "description",
+    "p": "dont-inhibit",
+}
+
+# Must agree with the aliases in lib/InputNormalizer.js: the keycode map is
+# indexed by this function's output and looked up with canonicalKey(), so the
+# output has to be a fixed point of that function. tests/fixtures/
+# canonical-keys.js is the shared corpus that holds both sides to it.
+KEY_ALIASES = {
+    "comma": ",",
+    "period": ".",
+    "slash": "/",
+    "minus": "-",
+    "equal": "=",
+    "grave": "`",
+    "return": "RETURN",
+    "enter": "RETURN",
+    "ret": "RETURN",
+    "space": "SPACE",
+    "escape": "ESCAPE",
+    "esc": "ESCAPE",
+    "control": "CTRL",
+    "meta": "SUPER",
+    "win": "SUPER",
+}
+
+# The keymap Hyprland resolves keysym binds against. It compiles the global
+# input:kb_* options with a fresh state, so a bind names the physical key that
+# produces that keysym with no modifiers applied, at layout group 0.
+LIBXKBCOMMON_PATH = "/usr/lib/libxkbcommon.so.0"
+KEYMAP_OPTION_NAMES = (
+    "kb_file", "kb_rules", "kb_model", "kb_layout", "kb_variant", "kb_options",
+    "resolve_binds_by_sym",
+)
+RMLVO_NAMES = ("kb_rules", "kb_model", "kb_layout", "kb_variant", "kb_options")
+# Hyprland's sentinel for an option that was never set.
+HYPRLAND_EMPTY = "[[EMPTY]]"
+# These values come from the user's Hyprland config and reach an API that
+# resolves names to files, so they are checked before the call rather than
+# cleaned: an absolute path here makes libxkbcommon open and parse that file.
+# fullmatch, not match: Python's "$" also matches before a trailing newline.
+RMLVO_ALLOWED = re.compile(r"[A-Za-z0-9_,:.+()-]*")
+MAX_RMLVO_CHARS = 128
+MAX_SESSION_HOME_CHARS = 4096
+USER_XKB_DIRECTORIES = (".config/xkb", ".xkb")
+# Everything this helper needs. xkb_context_include_path_append_default()
+# assembles its result from the environment, and the set of variables it reads
+# grows with the library, so the environment is reduced to a whitelist rather
+# than a blacklist that has to be chased.
+HELPER_ENVIRONMENT_KEYS = ("PATH", "HYPRLAND_INSTANCE_SIGNATURE", "XDG_RUNTIME_DIR")
+MAX_KEYCODE_MAP_ENTRIES = 256
+MAX_KEYCODES_PER_ENTRY = 16
+MAX_KEYCODE_MAP_BYTES = 4 * 1024
+XKB_CONTEXT_NO_DEFAULT_INCLUDES = 1
+XKB_KEYSYM_CASE_INSENSITIVE = 1
+XKB_KEYMAP_FORMAT_TEXT_V2 = 2
+DEVICE_KEYBOARD = re.compile(r"^\s*Keyboard at ", re.MULTILINE)
+DEVICE_RULES = re.compile(
+    r'rules:\s*r\s*"([^"]*)",\s*m\s*"([^"]*)",\s*l\s*"([^"]*)",'
+    r'\s*v\s*"([^"]*)",\s*o\s*"([^"]*)"'
+)
+
+PHYSICAL_FALLBACKS = {
+    10: "1", 11: "2", 12: "3", 13: "4", 14: "5",
+    15: "6", 16: "7", 17: "8", 18: "9", 19: "0",
+    20: "-", 21: "=", 59: ",", 60: ".", 61: "/",
+}
+
+class HelperError(RuntimeError):
+    pass
+
+
+HYPRCTL_PATH = "/usr/bin/hyprctl"
+# Absolute so no library this keep-loaded path relies on is resolved by the
+# dynamic loader's ambient search, and checked like every other trusted file
+# before it is opened: an absolute path says nothing about who may replace it.
+LIBC_PATH = "/usr/lib/libc.so.6"
+# hyprctl only needs to locate the compositor socket. Everything else is
+# dropped so a child never inherits an attacker-influenced environment.
+CHILD_ENVIRONMENT_KEYS = ("HYPRLAND_INSTANCE_SIGNATURE", "XDG_RUNTIME_DIR")
+PR_SET_PDEATHSIG = 1
+
+
+def trusted_command(path: str) -> str:
+    """Return ``path`` only when it is a root-owned, non-writable executable.
+
+    Commands are addressed by absolute path so nothing is resolved through the
+    ambient ``PATH`` of the long-lived shell process that hosts the plugin. The
+    dynamic libraries this helper loads go through the same check, since an
+    absolute path alone still trusts whoever can write the file behind it.
+    """
+    try:
+        info = os.stat(path)
+    except OSError as error:
+        raise HelperError(f"{path} is unavailable") from error
+    if not stat.S_ISREG(info.st_mode):
+        raise HelperError(f"{path} is not a regular file")
+    if info.st_uid != 0:
+        raise HelperError(f"{path} is not owned by root")
+    if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise HelperError(f"{path} is group or world writable")
+    if not info.st_mode & stat.S_IXUSR:
+        raise HelperError(f"{path} is not executable")
+    return path
+
+
+def child_environment() -> dict[str, str]:
+    environment = {"PATH": "/usr/bin"}
+    for name in CHILD_ENVIRONMENT_KEYS:
+        value = os.environ.get(name)
+        if value:
+            environment[name] = value
+    return environment
+
+
+def _prepare_child() -> None:
+    # Start a new session so the helper can signal the child's whole group, and
+    # ask the kernel to kill the child if this helper dies first. Without the
+    # death signal a SIGKILL of the helper would orphan a running hyprctl
+    # before any cleanup code could reap it.
+    os.setsid()
+    parent = os.getppid()
+    try:
+        libc = ctypes.CDLL(trusted_command(LIBC_PATH), use_errno=True)
+        libc.prctl(PR_SET_PDEATHSIG, signal.SIGKILL)
+    except (HelperError, OSError):
+        # Runs after fork, where raising would surface as a spawn failure
+        # instead of the degradation losing the death signal is allowed to be.
+        return
+    if os.getppid() != parent:
+        os._exit(1)
+
+
+def _kill_process_group(process: subprocess.Popen[bytes]) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+_ACTIVE_CHILD: subprocess.Popen[bytes] | None = None
+
+
+def _terminate(_signum: int, _frame: Any) -> None:
+    # A consumer that wants this helper gone sends SIGTERM first. Reap the
+    # child process group here so the tree cannot outlive the helper; the
+    # kernel death signal set in _prepare_child covers an immediate SIGKILL.
+    if _ACTIVE_CHILD is not None:
+        _kill_process_group(_ACTIVE_CHILD)
+    os._exit(143)
+
+
+def install_signal_handlers() -> None:
+    signal.signal(signal.SIGTERM, _terminate)
+    signal.signal(signal.SIGHUP, _terminate)
+
+
+def command_output(
+    command: list[str],
+    *,
+    max_stdout: int = MAX_COMMAND_STDOUT_BYTES,
+    max_stderr: int = MAX_COMMAND_STDERR_BYTES,
+    timeout: float = COMMAND_TIMEOUT_SECONDS,
+) -> str:
+    try:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=child_environment(),
+            preexec_fn=_prepare_child,
+            close_fds=True,
+        )
+    except OSError as error:
+        raise HelperError(f"{' '.join(command)} failed: {error}") from error
+
+    global _ACTIVE_CHILD
+    _ACTIVE_CHILD = process
+    streams = selectors.DefaultSelector()
+    assert process.stdout is not None and process.stderr is not None
+    streams.register(process.stdout, selectors.EVENT_READ, ("stdout", max_stdout))
+    streams.register(process.stderr, selectors.EVENT_READ, ("stderr", max_stderr))
+    buffers = {"stdout": bytearray(), "stderr": bytearray()}
+    deadline = time.monotonic() + timeout
+    try:
+        while streams.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise HelperError(f"{' '.join(command)} exceeded its deadline")
+            events = streams.select(min(remaining, 0.1))
+            if not events and process.poll() is not None:
+                events = [(key, 0) for key in list(streams.get_map().values())]
+            for key, _mask in events:
+                chunk = os.read(key.fd, 65536)
+                if not chunk:
+                    streams.unregister(key.fileobj)
+                    continue
+                name, limit = key.data
+                buffers[name].extend(chunk)
+                if len(buffers[name]) > limit:
+                    raise HelperError(f"{' '.join(command)} exceeded its {name} byte limit")
+        return_code = process.wait(timeout=max(0.01, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired as error:
+        _kill_process_group(process)
+        raise HelperError(f"{' '.join(command)} exceeded its deadline") from error
+    except HelperError:
+        _kill_process_group(process)
+        raise
+    finally:
+        _ACTIVE_CHILD = None
+        streams.close()
+        process.stdout.close()
+        process.stderr.close()
+
+    if return_code != 0:
+        detail = buffers["stderr"].decode("utf-8", errors="replace").strip()
+        detail = sanitize_text(detail, 512) if detail else f"exit status {return_code}"
+        raise HelperError(f"{' '.join(command)} failed: {detail}")
+    return buffers["stdout"].decode("utf-8", errors="strict")
+
+
+def read_text(path: str | None, command: list[str]) -> str:
+    if path:
+        raw = Path(path).read_bytes()
+        if len(raw) > MAX_FIXTURE_BYTES:
+            raise HelperError(f"fixture exceeds {MAX_FIXTURE_BYTES} bytes")
+        return raw.decode("utf-8", errors="strict")
+    return command_output(command)
+
+
+def sanitize_text(value: Any, limit: int) -> str:
+    text = unicodedata.normalize("NFC", str(value or ""))
+    cleaned = "".join(" " if unicodedata.category(char).startswith("C") else char for char in text)
+    if len(cleaned) > limit:
+        raise HelperError(f"field exceeds {limit} characters")
+    return cleaned
+
+
+def schema_text(value: Any, field: str) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise HelperError(f"{field} must be a string")
+    return sanitize_text(value, FIELD_LIMITS[field])
+
+
+def bounded_int(value: Any, minimum: int, maximum: int, field: str) -> int:
+    if isinstance(value, bool):
+        raise HelperError(f"{field} must be an integer")
+    try:
+        result = int(value)
+    except (TypeError, ValueError) as error:
+        raise HelperError(f"{field} must be an integer") from error
+    if result < minimum or result > maximum:
+        raise HelperError(f"{field} is out of range")
+    return result
+
+
+def parse_bool(value: str, field: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise HelperError(f"{field} must be a boolean")
+
+
+def split_blocks(raw: str) -> list[dict[str, str]]:
+    blocks: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+
+    for line in raw.splitlines():
+        header = re.match(r"^(bind[A-Za-z]*)\s*$", line, re.IGNORECASE)
+        if header:
+            if current:
+                blocks.append(current)
+                if len(blocks) > MAX_BINDINGS:
+                    raise HelperError(f"binding count exceeds {MAX_BINDINGS}")
+            current = {"_header": header.group(1).lower()}
+            continue
+        if current is None:
+            continue
+        match = re.match(r"^\s+([A-Za-z_][A-Za-z0-9_]*):\s?(.*)$", line)
+        if match:
+            current[match.group(1)] = match.group(2)
+
+    if current:
+        blocks.append(current)
+    if len(blocks) > MAX_BINDINGS:
+        raise HelperError(f"binding count exceeds {MAX_BINDINGS}")
+    return blocks
+
+
+def canonical_key(value: str) -> tuple[str, int, str]:
+    key = sanitize_text(value, FIELD_LIMITS["key"]).strip()
+    if " + " in key:
+        key = key.rsplit(" + ", 1)[-1].strip()
+    if key.lower().startswith("code:"):
+        try:
+            code = int(key.split(":", 1)[1])
+        except ValueError as error:
+            raise HelperError("keycode must be an integer") from error
+        code = bounded_int(code, 0, MAX_KEYCODE, "keycode")
+        return PHYSICAL_FALLBACKS.get(code, ""), code, "physical"
+    alias = KEY_ALIASES.get(key.lower(), key)
+    # Upper-cased whatever the length: lib/InputNormalizer.js canonicalKey()
+    # upper-cases single characters too, and the keycode map is looked up with
+    # its output. A "q" here against a "Q" there loses the binding entirely.
+    return alias.upper(), 0, "logical"
+
+
+def flags_for(block: dict[str, str]) -> list[str]:
+    aliases = {
+        "release": "release",
+        "repeat": "repeat",
+        "longPress": "long-press",
+        "mouse": "mouse",
+        "locked": "locked",
+        "nonConsuming": "non-consuming",
+        "catchAll": "catch-all",
+    }
+    flags = [
+        label
+        for key, label in aliases.items()
+        if parse_bool(block.get(key, "false"), key)
+    ]
+    suffix = block.get("_header", "")[4:]
+    for code in suffix:
+        label = HEADER_FLAGS.get(code)
+        if label is None:
+            raise HelperError(f"unknown bind flag: {code}")
+        if label not in flags:
+            flags.append(label)
+    return flags
+
+
+def binding_from_block(block: dict[str, str]) -> dict[str, Any]:
+    raw_key = block.get("key", "").strip()
+    key, keycode, match_mode = canonical_key(raw_key)
+    reported_code = block.get("keycode", "").strip()
+    if reported_code:
+        validated_code = bounded_int(reported_code, 0, MAX_KEYCODE, "keycode")
+        if not keycode:
+            keycode = validated_code
+    if not raw_key and keycode:
+        match_mode = "physical"
+
+    mod_mask = bounded_int(block.get("modmask", "0") or 0, 0, MAX_MODMASK, "modMask")
+
+    flags = flags_for(block)
+    if len(flags) > MAX_FLAGS:
+        raise HelperError(f"flag count exceeds {MAX_FLAGS}")
+    return {
+        "modMask": mod_mask,
+        "key": sanitize_text(key, FIELD_LIMITS["key"]),
+        "keycode": keycode,
+        "matchMode": match_mode,
+        "flags": [sanitize_text(flag, 32) for flag in flags],
+        "dontInhibit": parse_bool(
+            block.get("dontInhibit", block.get("dont_inhibit", "false")),
+            "dontInhibit",
+        )
+        or "p" in block.get("_header", "")[4:],
+        "allowInputCapture": parse_bool(
+            block.get("allow_input_capture", "false"),
+            "allowInputCapture",
+        ),
+        "dispatcher": sanitize_text(block.get("dispatcher", ""), FIELD_LIMITS["dispatcher"]).strip(),
+        "arg": sanitize_text(block.get("arg", ""), FIELD_LIMITS["arg"]).strip(),
+        "description": sanitize_text(block.get("description", ""), FIELD_LIMITS["description"]).strip(),
+        "submap": sanitize_text(block.get("submap", ""), FIELD_LIMITS["submap"]).strip(),
+    }
+
+
+def fingerprint(raw_binds: str, raw_devices: str) -> str:
+    keymaps = "\n".join(
+        line.strip() for line in raw_devices.splitlines() if "active keymap:" in line
+    )
+    return hashlib.sha256((raw_binds + "\n" + keymaps).encode()).hexdigest()
+
+
+def has_apple_keyboard(raw_devices: str) -> bool:
+    section = re.search(
+        r"(?ims)^Keyboards:\s*(.*?)(?=^[A-Za-z][^\n]*:\s*$|\Z)",
+        raw_devices,
+    )
+    return bool(section and "apple" in section.group(1).lower())
+
+
+class _XkbRuleNames(ctypes.Structure):
+    _fields_ = [
+        ("rules", ctypes.c_char_p),
+        ("model", ctypes.c_char_p),
+        ("layout", ctypes.c_char_p),
+        ("variant", ctypes.c_char_p),
+        ("options", ctypes.c_char_p),
+    ]
+
+
+def keymap_options() -> dict[str, Any]:
+    """Read the global input options Hyprland resolves keysym binds against.
+
+    One batched call. ``hyprctl`` answers with one JSON object per option,
+    separated by blank lines rather than wrapped in an array.
+    """
+    request = ";".join(f"getoption input:{name}" for name in KEYMAP_OPTION_NAMES)
+    raw = command_output(
+        [trusted_command(HYPRCTL_PATH), "-j", "--batch", request],
+        max_stdout=64 * 1024,
+    )
+    decoder = json.JSONDecoder()
+    options: dict[str, Any] = {}
+    index = 0
+    while index < len(raw):
+        if raw[index].isspace():
+            index += 1
+            continue
+        value, index = decoder.raw_decode(raw, index)
+        if not isinstance(value, dict):
+            raise HelperError("hyprctl getoption returned a non-object")
+        name = value.get("option", "")
+        if not isinstance(name, str) or not name.startswith("input:"):
+            raise HelperError("hyprctl getoption returned an unexpected option")
+        name = name[len("input:"):]
+        if name not in KEYMAP_OPTION_NAMES or name in options:
+            raise HelperError(f"hyprctl getoption returned an unexpected option: {name}")
+        options[name] = value
+    if len(options) != len(KEYMAP_OPTION_NAMES):
+        raise HelperError("hyprctl getoption omitted a keymap option")
+    return options
+
+
+def option_text(options: dict[str, Any], name: str) -> str:
+    value = options.get(name, {}).get("str", "")
+    if not isinstance(value, str):
+        raise HelperError(f"input:{name} is not a string")
+    return "" if value == HYPRLAND_EMPTY else value
+
+
+def validated_rmlvo(options: dict[str, Any]) -> tuple[str, ...] | None:
+    """Return the five rule names, or None when any of them fails the check."""
+    values = []
+    for name in RMLVO_NAMES:
+        value = option_text(options, name)
+        if len(value) > MAX_RMLVO_CHARS or not RMLVO_ALLOWED.fullmatch(value) or ".." in value:
+            return None
+        values.append(value)
+    return tuple(values)
+
+
+def session_home_matches_passwd(value: str) -> bool:
+    """Whether the launcher's HOME is the one this helper looks under.
+
+    Compared only, never used as a path. Anything that is not a plain absolute
+    path is treated as a mismatch rather than cleaned up.
+    """
+    if not value or len(value) > MAX_SESSION_HOME_CHARS or not value.startswith("/"):
+        return False
+    if any(unicodedata.category(character).startswith("C") for character in value):
+        return False
+    try:
+        return value == pwd.getpwuid(os.getuid()).pw_dir
+    except (KeyError, OSError):
+        return False
+
+
+def resolve_by_sym(options: dict[str, Any]) -> bool:
+    """Read input:resolve_binds_by_sym under a strict boolean contract.
+
+    Split out so the schema check can be tested without a working keymap: a
+    missing field or a 1 must not be read as false and skip the checks the
+    flag guards.
+    """
+    value = options["resolve_binds_by_sym"].get("bool")
+    if not isinstance(value, bool):
+        raise HelperError("input:resolve_binds_by_sym is not a boolean")
+    return value
+
+
+def user_xkb_override_present() -> bool:
+    """Whether the user ships XKB data this helper deliberately does not read.
+
+    Hyprland runs with a full environment and loads these; the helper does not
+    read user-writable content, so the two keymaps would silently disagree.
+    """
+    try:
+        home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    except (KeyError, OSError):
+        return True
+    return any((home / name).exists() for name in USER_XKB_DIRECTORIES)
+
+
+def devices_follow_global(raw_devices: str, rmlvo: tuple[str, ...]) -> bool:
+    matches = DEVICE_RULES.findall(raw_devices)
+    # A keyboard whose rule line is missing or unparsed would otherwise be
+    # skipped silently, and the keyboards that did parse would answer for it.
+    if not matches or len(matches) != len(DEVICE_KEYBOARD.findall(raw_devices)):
+        return False
+    # The device line prints r, m, l, v, o in that order.
+    return all(tuple(match) == rmlvo for match in matches)
+
+
+def xkb_library() -> Any:
+    library = ctypes.CDLL(trusted_command(LIBXKBCOMMON_PATH), use_errno=True)
+    rule_names = ctypes.POINTER(_XkbRuleNames)
+    signatures = {
+        "xkb_context_new": (ctypes.c_void_p, [ctypes.c_int]),
+        "xkb_context_unref": (None, [ctypes.c_void_p]),
+        "xkb_context_include_path_append_default": (ctypes.c_int, [ctypes.c_void_p]),
+        "xkb_keymap_new_from_names": (ctypes.c_void_p, [ctypes.c_void_p, rule_names, ctypes.c_int]),
+        "xkb_keymap_unref": (None, [ctypes.c_void_p]),
+        "xkb_keymap_num_layouts": (ctypes.c_uint32, [ctypes.c_void_p]),
+        "xkb_keymap_min_keycode": (ctypes.c_uint32, [ctypes.c_void_p]),
+        "xkb_keymap_max_keycode": (ctypes.c_uint32, [ctypes.c_void_p]),
+        "xkb_keymap_key_get_syms_by_level": (
+            ctypes.c_int,
+            [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
+             ctypes.POINTER(ctypes.POINTER(ctypes.c_uint32))],
+        ),
+        "xkb_context_num_include_paths": (ctypes.c_uint, [ctypes.c_void_p]),
+        "xkb_context_include_path_get": (ctypes.c_char_p, [ctypes.c_void_p, ctypes.c_uint]),
+        "xkb_keysym_from_name": (ctypes.c_uint32, [ctypes.c_char_p, ctypes.c_int]),
+    }
+    for name, (restype, argtypes) in signatures.items():
+        function = getattr(library, name)
+        function.restype = restype
+        function.argtypes = argtypes
+    try:
+        # Hyprland compiles with the v2 text format; the entry point exists
+        # from libxkbcommon 1.11.0 onward.
+        creator = library.xkb_keymap_new_from_names2
+    except AttributeError:
+        pass
+    else:
+        creator.restype = ctypes.c_void_p
+        creator.argtypes = [ctypes.c_void_p, rule_names, ctypes.c_int, ctypes.c_int]
+    return library
+
+
+def scrub_environment() -> None:
+    for name in [name for name in os.environ if name not in HELPER_ENVIRONMENT_KEYS]:
+        os.environ.pop(name, None)
+
+
+def trusted_directory(path: str) -> bool:
+    try:
+        info = os.stat(path)
+    except OSError:
+        return False
+    return (stat.S_ISDIR(info.st_mode) and info.st_uid == 0
+            and not info.st_mode & (stat.S_IWGRP | stat.S_IWOTH))
+
+
+def system_include_paths(library: Any, context: int) -> bool:
+    """Append the library's default search path and verify what it produced.
+
+    The default path is not a constant: it is assembled from the environment,
+    so it is both cleared beforehand and checked afterwards. Every entry must
+    be a root-owned directory that only root can write.
+    """
+    library.xkb_context_include_path_append_default(context)
+    count = library.xkb_context_num_include_paths(context)
+    if not count:
+        return False
+    for index in range(count):
+        entry = library.xkb_context_include_path_get(context, index)
+        if entry is None or not trusted_directory(entry.decode("utf-8", errors="replace")):
+            return False
+    return True
+
+
+def compile_keymap(library: Any, context: int, rmlvo: tuple[str, ...]) -> int:
+    # Empty strings rather than NULL, matching how Hyprland fills the struct.
+    names = _XkbRuleNames(*(value.encode("utf-8") for value in rmlvo))
+    try:
+        creator = library.xkb_keymap_new_from_names2
+    except AttributeError:
+        return library.xkb_keymap_new_from_names(context, ctypes.byref(names), 0) or 0
+    return creator(context, ctypes.byref(names), XKB_KEYMAP_FORMAT_TEXT_V2, 0) or 0
+
+
+def base_keysyms(library: Any, keymap: int) -> dict[int, list[int]]:
+    """Map each base-level keysym to every keycode that produces it.
+
+    Hyprland compares the pressed key's base keysym against the bind's keysym,
+    so a keysym reachable from several keycodes is triggered by all of them.
+    """
+    table: dict[int, list[int]] = {}
+    syms = ctypes.POINTER(ctypes.c_uint32)()
+    first = int(library.xkb_keymap_min_keycode(keymap))
+    last = int(library.xkb_keymap_max_keycode(keymap))
+    if last < first or last > MAX_KEYCODE:
+        # Clamping would publish a table covering only part of the keymap while
+        # still claiming to be authoritative.
+        raise HelperError("keymap keycode range is outside the schema")
+    for code in range(first, last + 1):
+        if library.xkb_keymap_key_get_syms_by_level(keymap, code, 0, 0, ctypes.byref(syms)) != 1:
+            continue
+        entry = table.setdefault(int(syms[0]), [])
+        if len(entry) >= MAX_KEYCODES_PER_ENTRY:
+            # Truncating would leave a table that looks authoritative while
+            # rejecting keycodes the compositor accepts.
+            raise HelperError("a keysym exceeded its keycode limit")
+        entry.append(int(code))
+    return table
+
+
+def resolve_keymap(
+    raw_devices: str, environment_overridden: bool = False, session_home: str = ""
+) -> dict[str, Any] | None:
+    """Reproduce Hyprland's bind keymap, or None when it cannot be confirmed.
+
+    Anything that would require reading user-writable content, or that leaves
+    the effective keymap ambiguous, degrades instead of guessing: the caller
+    then keeps the pre-existing character comparison. This is an enhancement to
+    judging, so no failure inside it may cost the caller its snapshot.
+    """
+    try:
+        return _resolve_keymap(raw_devices, environment_overridden, session_home)
+    except (HelperError, OSError, ValueError, AttributeError, KeyError):
+        return None
+
+
+def _resolve_keymap(
+    raw_devices: str, environment_overridden: bool, session_home: str
+) -> dict[str, Any] | None:
+    # The helper runs with a rebuilt environment and cannot see the one
+    # Hyprland was started with, so the launcher reports whether that
+    # environment names an XKB source of its own.
+    if environment_overridden:
+        return None
+    # The override directories are looked up under the passwd home. If the
+    # session runs with a different HOME, libxkbcommon would search there and
+    # this helper would be checking the wrong place, so it declines instead.
+    if not session_home_matches_passwd(session_home):
+        return None
+    options = keymap_options()
+    if option_text(options, "kb_file"):
+        return None
+    if user_xkb_override_present():
+        return None
+    rmlvo = validated_rmlvo(options)
+    if rmlvo is None:
+        return None
+    library = xkb_library()
+
+    context = library.xkb_context_new(XKB_CONTEXT_NO_DEFAULT_INCLUDES)
+    if not context:
+        return None
+    try:
+        if not system_include_paths(library, context):
+            return None
+        keymap = compile_keymap(library, context, rmlvo)
+        if not keymap:
+            return None
+        try:
+            if resolve_by_sym(options):
+                # Binds then resolve against the event keyboard's own keymap at
+                # its active group. Those coincide with the global keymap only
+                # when every keyboard follows it and there is a single group.
+                if library.xkb_keymap_num_layouts(keymap) != 1:
+                    return None
+                if not devices_follow_global(raw_devices, rmlvo):
+                    return None
+            return {"source": "global-rmlvo", "syms": base_keysyms(library, keymap), "library": library}
+        finally:
+            library.xkb_keymap_unref(keymap)
+    finally:
+        library.xkb_context_unref(context)
+
+
+def keysym_candidate(raw_key: str) -> str:
+    """The keysym name Hyprland would look up for this bind, or "".
+
+    Mirrors canonical_key()'s preprocessing: hyprctl prints the whole chord in
+    the key field, and non-keyboard binds carry no keysym at all.
+    """
+    key = sanitize_text(raw_key, FIELD_LIMITS["key"]).strip()
+    if " + " in key:
+        key = key.rsplit(" + ", 1)[-1].strip()
+    if not key or key.lower().startswith("code:"):
+        return ""
+    if re.match(r"^(?:mouse:|mouse_|switch:)", key, re.IGNORECASE):
+        return ""
+    return key
+
+
+def keycodes_for(keymap: dict[str, Any], name: str) -> list[int]:
+    # The same call Hyprland makes; hyprctl prints key names in mixed case.
+    keysym = keymap["library"].xkb_keysym_from_name(
+        name.encode("utf-8"), XKB_KEYSYM_CASE_INSENSITIVE
+    )
+    if not keysym:
+        return []
+    return list(keymap["syms"].get(int(keysym), []))
+
+
+def keycode_map(
+    raw_keys: list[str], keymap: dict[str, Any], apple_keyboard: bool
+) -> dict[str, list[int]]:
+    """Keycodes accepted for each canonical key name used by the bindings.
+
+    Indexed by canonical_key()'s output, which the consumer reproduces by
+    calling canonicalKey() on the binding's key. The two must agree exactly,
+    so a key spelled one way here and another way there is not merely
+    cosmetic: it loses the binding. tests/qml/tst_algorithms.qml compares the
+    two implementations over a shared corpus.
+
+    A name absent from the result is a determinate answer - nothing on this
+    layout produces it, so Hyprland would not fire the bind either.
+
+    Several raw spellings can share one canonical name. When they disagree the
+    schema cannot express the difference, which is not a determinate answer, so
+    the whole table is refused rather than published with a guess.
+    """
+    outcomes: dict[str, list[int] | None] = {}
+    for raw_key in raw_keys:
+        try:
+            name = keysym_candidate(raw_key)
+            canonical = canonical_key(raw_key)[0] if name else ""
+        except HelperError:
+            continue
+        if not name or not canonical:
+            continue
+        codes = keycodes_for(keymap, name) or None
+        if canonical not in outcomes:
+            outcomes[canonical] = codes
+        elif outcomes[canonical] != codes:
+            # canonical_key() maps both "enter" and "return" to RETURN, and
+            # only "return" names a keysym. One entry cannot say that RETURN is
+            # pressable for one spelling and not for the other.
+            raise HelperError(f"keycode map cannot express {canonical!r}")
+
+    resolved = {name: codes for name, codes in outcomes.items() if codes is not None}
+
+    if apple_keyboard and "DELETE" in resolved:
+        # The key labelled delete on an Apple keyboard sends BackSpace. The
+        # existing equivalence is carried as data instead of a matcher special
+        # case.
+        for code in keycodes_for(keymap, "BackSpace"):
+            if code in resolved["DELETE"]:
+                continue
+            if len(resolved["DELETE"]) >= MAX_KEYCODES_PER_ENTRY:
+                raise HelperError("DELETE exceeded its keycode limit")
+            resolved["DELETE"].append(code)
+
+    if len(resolved) > MAX_KEYCODE_MAP_ENTRIES:
+        raise HelperError("keycode map exceeded its entry limit")
+    if len(json.dumps(resolved, separators=(",", ":")).encode("utf-8")) > MAX_KEYCODE_MAP_BYTES:
+        raise HelperError("keycode map exceeded its byte limit")
+    return resolved
+
+
+def keymap_fields(
+    raw_keys: list[str], keymap: dict[str, Any] | None, apple_keyboard: bool
+) -> dict[str, Any]:
+    """The two header fields describing how judging should be performed.
+
+    An empty map is a conclusion, not a failure: either nothing named a keysym,
+    or nothing any binding named is reachable on this layout. Cases the helper
+    genuinely cannot decide raise instead, and degrade here.
+    """
+    if keymap is None:
+        return {"keymapSource": "none", "keycodeMap": {}}
+    try:
+        resolved = keycode_map(raw_keys, keymap, apple_keyboard)
+    except (HelperError, OSError, ValueError, AttributeError):
+        return {"keymapSource": "none", "keycodeMap": {}}
+    return {"keymapSource": keymap["source"], "keycodeMap": resolved}
+
+
+def accept_records(values: list[Any], build: Any) -> tuple[list[dict[str, Any] | None], int]:
+    """Build one record per input, keeping index alignment.
+
+    A record that breaks a schema limit is rejected on its own instead of
+    failing the whole snapshot: an unusable binding is simply not trainable,
+    while the remaining bindings stay available. ``None`` holds the slot so
+    later positional merges keep lining up with the source list.
+    """
+    records: list[dict[str, Any] | None] = []
+    rejected = 0
+    for value in values:
+        try:
+            records.append(build(value))
+        except HelperError:
+            records.append(None)
+            rejected += 1
+    return records, rejected
+
+
+def snapshot(
+    raw_binds: str, raw_devices: str = "", keymap: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    blocks = split_blocks(raw_binds)
+    records, rejected = accept_records(blocks, binding_from_block)
+    # Index-aligned with records, so a rejected record cannot shift the raw key
+    # of the ones that follow it. Transient: never part of the snapshot.
+    raw_keys = [
+        block.get("key", "").strip()
+        for block, record in zip(blocks, records)
+        if record is not None
+    ]
+    apple_keyboard = has_apple_keyboard(raw_devices)
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "keymapFingerprint": fingerprint(raw_binds, raw_devices),
+        "appleKeyboard": apple_keyboard,
+        "rejected": rejected,
+        "bindings": [record for record in records if record is not None],
+        **keymap_fields(raw_keys, keymap, apple_keyboard),
+    }
+
+
+def binding_from_json(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise HelperError("hyprctl JSON binding is not an object")
+    modmask = bounded_int(value.get("modmask", 0), 0, MAX_MODMASK, "modMask")
+    raw_key = schema_text(value.get("key", ""), "key")
+    key, keycode, match_mode = canonical_key(raw_key)
+    reported_code = bounded_int(value.get("keycode", 0), 0, MAX_KEYCODE, "keycode")
+    if not keycode:
+        keycode = reported_code
+    if not raw_key and keycode:
+        match_mode = "physical"
+
+    bool_flags = {
+        "locked": "locked",
+        "mouse": "mouse",
+        "release": "release",
+        "repeat": "repeat",
+        "repeating": "repeat",
+        "longPress": "long-press",
+        "long_press": "long-press",
+        "nonConsuming": "non-consuming",
+        "non_consuming": "non-consuming",
+        "catchAll": "catch-all",
+        "catch_all": "catch-all",
+        "click": "click",
+        "drag": "drag",
+    }
+    for name in set(bool_flags) | {"dontInhibit", "dont_inhibit", "allowInputCapture", "allow_input_capture"}:
+        if name in value and not isinstance(value[name], bool):
+            raise HelperError(f"{name} must be a boolean")
+    flags = [label for name, label in bool_flags.items() if value.get(name) is True]
+    if len(flags) > MAX_FLAGS:
+        raise HelperError(f"flag count exceeds {MAX_FLAGS}")
+    return {
+        "modMask": modmask,
+        "key": sanitize_text(key, FIELD_LIMITS["key"]),
+        "keycode": keycode,
+        "matchMode": match_mode,
+        "flags": sorted(set(flags)),
+        "dontInhibit": value.get("dontInhibit") is True or value.get("dont_inhibit") is True,
+        "allowInputCapture": value.get("allowInputCapture") is True or value.get("allow_input_capture") is True,
+        "dispatcher": schema_text(value.get("dispatcher", ""), "dispatcher").strip(),
+        "arg": schema_text(value.get("arg", ""), "arg").strip(),
+        "description": schema_text(value.get("description", ""), "description").strip(),
+        "submap": schema_text(value.get("submap", ""), "submap").strip(),
+    }
+
+
+def records_align(json_binding: dict[str, Any], plain_binding: dict[str, Any]) -> bool:
+    if json_binding["modMask"] != plain_binding["modMask"]:
+        return False
+    if json_binding["description"] != plain_binding["description"]:
+        return False
+    json_has_key = bool(json_binding["key"] or json_binding["keycode"])
+    plain_has_key = bool(plain_binding["key"] or plain_binding["keycode"])
+    if json_has_key and plain_has_key:
+        if json_binding["matchMode"] != plain_binding["matchMode"]:
+            return False
+        if json_binding["key"] and plain_binding["key"] \
+                and json_binding["key"] != plain_binding["key"]:
+            return False
+        if json_binding["keycode"] and plain_binding["keycode"] \
+                and json_binding["keycode"] != plain_binding["keycode"]:
+            return False
+    for field in ("dispatcher", "arg", "submap"):
+        if json_binding[field] and plain_binding[field] and json_binding[field] != plain_binding[field]:
+            return False
+    return True
+
+
+def snapshot_json(
+    raw_json: str, raw_plain: str, raw_devices: str = "",
+    keymap: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    try:
+        values = json.loads(raw_json)
+    except json.JSONDecodeError as error:
+        raise HelperError(f"invalid hyprctl JSON: {error}") from error
+    if not isinstance(values, list):
+        raise HelperError("hyprctl JSON root is not an array")
+    if len(values) > MAX_BINDINGS:
+        raise HelperError(f"binding count exceeds {MAX_BINDINGS}")
+    bindings, rejected = accept_records(values, binding_from_json)
+
+    # Current JSON exposes most named flags, but some releases omit
+    # dont_inhibit. Merge the text header's compact `p` flag by record order.
+    plain_blocks = split_blocks(raw_plain)
+    plain, _ = accept_records(plain_blocks, binding_from_block)
+    if len(plain) != len(bindings):
+        raise HelperError("hyprctl JSON and plain binding counts differ")
+    for index, binding in enumerate(bindings):
+        if binding is None:
+            continue
+        plain_binding = plain[index]
+        # The plain record supplies flags that some Hyprland JSON versions
+        # omit. If it cannot be validated and aligned, retaining the JSON
+        # record could misclassify a dont-inhibit binding as safe to train.
+        if plain_binding is None or not records_align(binding, plain_binding):
+            bindings[index] = None
+            rejected += 1
+            continue
+        binding["dontInhibit"] = binding["dontInhibit"] or plain_binding["dontInhibit"]
+        binding["allowInputCapture"] = (
+            binding["allowInputCapture"] or plain_binding["allowInputCapture"]
+        )
+        if (not binding["key"] and not binding["keycode"]
+                and (plain_binding["key"] or plain_binding["keycode"])):
+            binding["key"] = plain_binding["key"]
+            binding["keycode"] = plain_binding["keycode"]
+            binding["matchMode"] = plain_binding["matchMode"]
+
+    # The plain record supplies the raw key whenever the JSON record had none,
+    # matching the key/keycode recovery performed above.
+    raw_keys = []
+    for index, binding in enumerate(bindings):
+        if binding is None:
+            continue
+        value = values[index] if isinstance(values[index], dict) else {}
+        raw_key = str(value.get("key", "") or "").strip()
+        if not raw_key and index < len(plain_blocks):
+            raw_key = plain_blocks[index].get("key", "").strip()
+        raw_keys.append(raw_key)
+
+    apple_keyboard = has_apple_keyboard(raw_devices)
+    return {
+        "schemaVersion": SCHEMA_VERSION,
+        "keymapFingerprint": fingerprint(raw_plain, raw_devices),
+        "appleKeyboard": apple_keyboard,
+        "rejected": rejected,
+        "bindings": [binding for binding in bindings if binding is not None],
+        **keymap_fields(raw_keys, keymap, apple_keyboard),
+    }
+
+
+MAX_RECORD_BYTES = 8 * 1024
+
+
+def write_stream(result: dict[str, Any]) -> int:
+    """Emit the snapshot as newline-delimited records.
+
+    One record per line keeps every line small by construction, so the QML
+    consumer can enforce its own byte and record budget while reading instead
+    of after the whole stream has been retained.
+    """
+    bindings = result["bindings"]
+    header = {
+        "schemaVersion": SCHEMA_VERSION,
+        "type": "header",
+        "keymapFingerprint": result["keymapFingerprint"],
+        "appleKeyboard": result["appleKeyboard"],
+        "rejected": result["rejected"],
+        "count": len(bindings),
+        "keymapSource": result["keymapSource"],
+        "keycodeMap": result["keycodeMap"],
+    }
+    lines = [header] + [dict(binding, type="binding") for binding in bindings]
+    total = 0
+    for line in lines:
+        encoded = json.dumps(line, ensure_ascii=False).encode("utf-8")
+        if len(encoded) > MAX_RECORD_BYTES:
+            print(json.dumps({"schemaVersion": SCHEMA_VERSION, "type": "error", "error": "keybind record exceeds byte limit"}))
+            return 1
+        total += len(encoded) + 1
+        if total > MAX_PAYLOAD_BYTES:
+            print(json.dumps({"schemaVersion": SCHEMA_VERSION, "type": "error", "error": "keybind payload exceeds byte limit"}))
+            return 1
+        sys.stdout.buffer.write(encoded + b"\n")
+    sys.stdout.buffer.flush()
+    return 0
+
+
+def main() -> int:
+    scrub_environment()
+    install_signal_handlers()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input", help="read hyprctl binds output from a fixture")
+    parser.add_argument("--devices-input", help="read hyprctl devices output from a fixture")
+    parser.add_argument("--guard-status", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--xkb-environment-overridden", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--session-home", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--pretty", action="store_true")
+    args = parser.parse_args()
+
+    try:
+        if args.guard_status:
+            raw_option = command_output(
+                [trusted_command(HYPRCTL_PATH), "-j", "getoption", "binds:disable_keybind_grabbing"],
+                max_stdout=64 * 1024,
+            )
+            option = json.loads(raw_option)
+            if not isinstance(option, dict):
+                raise HelperError("Hyprland preflight returned a non-object")
+            if not any(name in option for name in ("bool", "int", "str")):
+                raise HelperError("Hyprland preflight omitted its value")
+            integer = option.get("int")
+            disabled = option.get("bool") is True
+            if isinstance(integer, int) and not isinstance(integer, bool) and integer != 0:
+                disabled = True
+            if isinstance(option.get("str"), str) and option["str"].lower() == "true":
+                disabled = True
+            result = {"schemaVersion": SCHEMA_VERSION, "type": "guard", "disabled": disabled}
+            encoded = json.dumps(result, ensure_ascii=False).encode("utf-8")
+            sys.stdout.buffer.write(encoded + b"\n")
+            return 0
+        devices = read_text(args.devices_input, [trusted_command(HYPRCTL_PATH), "devices"])
+        # Fixture runs describe a machine that is not this one, so the live
+        # keymap must not be applied to them.
+        keymap = (None if (args.input or args.devices_input)
+                  else resolve_keymap(devices, args.xkb_environment_overridden, args.session_home))
+        if args.input:
+            binds = read_text(args.input, [trusted_command(HYPRCTL_PATH), "binds"])
+            result = snapshot(binds, devices, keymap)
+        else:
+            plain = command_output([trusted_command(HYPRCTL_PATH), "binds"])
+            try:
+                result = snapshot_json(
+                    command_output([trusted_command(HYPRCTL_PATH), "-j", "binds"]),
+                    plain, devices, keymap,
+                )
+            except HelperError:
+                result = snapshot(plain, devices, keymap)
+    except (OSError, UnicodeError, json.JSONDecodeError, HelperError) as error:
+        print(json.dumps({"schemaVersion": SCHEMA_VERSION, "type": "error", "error": str(error)}))
+        return 1
+
+    if args.pretty:
+        encoded = json.dumps(result, indent=2, ensure_ascii=False).encode("utf-8")
+        if len(encoded) > MAX_PAYLOAD_BYTES:
+            print(json.dumps({"schemaVersion": SCHEMA_VERSION, "type": "error", "error": "keybind payload exceeds byte limit"}))
+            return 1
+        sys.stdout.buffer.write(encoded + b"\n")
+        return 0
+
+    return write_stream(result)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

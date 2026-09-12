@@ -1,0 +1,224 @@
+package generation
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/prettyletto/omagen/backend/internal/bar"
+	"github.com/prettyletto/omagen/backend/internal/contrast"
+	"github.com/prettyletto/omagen/backend/internal/imageanalysis"
+	semanticpalette "github.com/prettyletto/omagen/backend/internal/palette"
+	"github.com/prettyletto/omagen/backend/internal/runtime"
+	"github.com/prettyletto/omagen/backend/internal/session"
+	settingspkg "github.com/prettyletto/omagen/backend/internal/settings"
+	"github.com/prettyletto/omagen/backend/internal/theme"
+)
+
+type job struct {
+	variant         Variant
+	sourceImage     string
+	basePalette     *theme.Palette
+	analysis        *imageanalysis.Analysis
+	settings        settingspkg.Settings
+	shellStyle      session.ShellStyle
+	desktopStyle    session.DesktopStyle
+	barStyle        session.BarStyle
+	animationsStyle session.AnimationsStyle
+	lookFeel        session.LookFeelDocument
+	terminal        session.TerminalTranslucency
+}
+
+func (j job) run(
+	ctx context.Context,
+	generationRoot string,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if err := j.analysis.Validate(); err != nil {
+		return fmt.Errorf(
+			"invalid image analysis: %w",
+			err,
+		)
+	}
+
+	variantDir := filepath.Join(
+		generationRoot,
+		string(j.variant),
+	)
+
+	if err := os.Mkdir(
+		variantDir,
+		0o755,
+	); err != nil {
+		return fmt.Errorf(
+			"create variant directory: %w",
+			err,
+		)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	var generatedPalette theme.Palette
+	basePalette := j.basePalette
+	if basePalette == nil {
+		base, err := semanticpalette.Source(
+			j.analysis.Representatives,
+			j.settings.ColorTheory.Harmony,
+		)
+		if err != nil {
+			return fmt.Errorf("build source palette: %w", err)
+		}
+		basePalette = &base
+	}
+	switch j.variant {
+	case Source:
+		generatedPalette = *basePalette
+
+	case Calm:
+		var err error
+		generatedPalette, err = semanticpalette.Calm(*basePalette)
+		if err != nil {
+			return fmt.Errorf("build calm palette: %w", err)
+		}
+
+	case Mute:
+		var err error
+		generatedPalette, err = semanticpalette.Mute(*basePalette)
+		if err != nil {
+			return fmt.Errorf("build mute palette: %w", err)
+		}
+
+	case Deep:
+		var err error
+		generatedPalette, err = semanticpalette.Deep(*basePalette)
+		if err != nil {
+			return fmt.Errorf("build deep palette: %w", err)
+		}
+		generatedPalette, err = semanticpalette.NormalizeSurfaceHierarchy(generatedPalette)
+		if err != nil {
+			return fmt.Errorf("normalize deep surfaces: %w", err)
+		}
+
+	case Vibrant:
+		var err error
+		generatedPalette, err = semanticpalette.Vibrant(*basePalette)
+		if err != nil {
+			return fmt.Errorf("build vibrant palette: %w", err)
+		}
+
+	case Balanced:
+		var err error
+		generatedPalette, err = semanticpalette.Balanced(*basePalette)
+		if err != nil {
+			return fmt.Errorf("build balanced palette: %w", err)
+		}
+
+	default:
+		return fmt.Errorf("unsupported generation variant %q", j.variant)
+	}
+
+	var err error
+	var effectiveBarSpec *bar.BarSpec
+	// A theme-edit source is already an authored palette. Keep it semantically
+	// identical; contrast normalization belongs to newly derived directions
+	// and must not silently rewrite the user's source.
+	if j.basePalette == nil || j.variant != Source {
+		generatedPalette, err = contrast.Enforce(generatedPalette, j.settings.Contrast)
+		if err != nil {
+			return fmt.Errorf("enforce %s contrast: %w", j.variant, err)
+		}
+		generatedPalette, err = semanticpalette.EnsureANSIDistinctAfterContrast(
+			generatedPalette,
+			j.settings.Contrast.ANSI,
+			j.settings.Contrast.BrightANSI,
+		)
+		if err != nil {
+			return fmt.Errorf("finalize ANSI palette for %s: %w", j.variant, err)
+		}
+	}
+
+	if err := theme.WriteColors(
+		variantDir,
+		generatedPalette,
+	); err != nil {
+		return fmt.Errorf(
+			"write colors: %w",
+			err,
+		)
+	}
+	if j.shellStyle.Valid() && j.barStyle.Valid() {
+		spec := j.barStyle.EffectiveBarSpec()
+		effectiveBarSpec = &spec
+		if err := theme.WriteShellWithOverridesAndSpec(
+			variantDir,
+			generatedPalette,
+			j.shellStyle.Surface,
+			j.shellStyle.Detail,
+			j.shellStyle.Tooltip,
+			j.shellStyle.Notifications,
+			j.barStyle.Surface,
+			j.barStyle.Density,
+			j.barStyle.Attention,
+			j.barStyle.Form,
+			j.barStyle.Visibility,
+			session.EffectiveShellOverrides(j.shellStyle, j.barStyle),
+			&spec,
+		); err != nil {
+			return fmt.Errorf("write shell style: %w", err)
+		}
+		if j.barStyle.Profile != nil {
+			if err := theme.WriteBarProfile(variantDir, *j.barStyle.Profile); err != nil {
+				return fmt.Errorf("write bar profile: %w", err)
+			}
+		}
+		if err := theme.WriteBarSpec(variantDir, j.barStyle.EffectiveBarSpec()); err != nil {
+			return fmt.Errorf("write bar spec: %w", err)
+		}
+		if err := runtime.WriteManifest(variantDir, runtime.AdvancedManifest("shell", "bar", "window", "animations")); err != nil {
+			return fmt.Errorf("write Omagen runtime manifest: %w", err)
+		}
+	}
+	if j.desktopStyle.Valid() {
+		if err := theme.WriteHyprlandWithDesktopStyleAndAnimationsAndShell(variantDir, generatedPalette, j.desktopStyle, j.animationsStyle, j.shellStyle.Preset, effectiveBarSpec); err != nil {
+			return fmt.Errorf("write hyprland style: %w", err)
+		}
+	}
+	if j.lookFeel.Preset != "" {
+		if err := theme.WriteLookFeelMetadata(variantDir, j.lookFeel); err != nil {
+			return fmt.Errorf("write Look & Feel metadata: %w", err)
+		}
+		if err := theme.WriteTerminalTranslucency(variantDir, j.terminal); err != nil {
+			return fmt.Errorf("write terminal translucency metadata: %w", err)
+		}
+	}
+	extension, err := j.analysis.Extension()
+	if err != nil {
+		return fmt.Errorf(
+			"resolve image extension: %w",
+			err,
+		)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if err := theme.WriteBackground(
+		variantDir,
+		j.sourceImage,
+		extension,
+	); err != nil {
+		return fmt.Errorf(
+			"write background: %w",
+			err,
+		)
+	}
+
+	return ctx.Err()
+}

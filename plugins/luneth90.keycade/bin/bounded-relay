@@ -1,0 +1,197 @@
+#!/usr/bin/python3
+"""Copy a child's stdout under a byte and time budget chosen by the caller.
+
+The QML consumers cannot bound what reaches them on their own: Quickshell's
+stream parsers expose no buffer limit, so a child that never emits the split
+marker is retained in full before any QML code runs. This relay restores that
+bound outside the process that produces the data. It is spawned by the
+consumer, receives its limits as arguments, and never interprets the payload -
+it only counts bytes, enforces a deadline, and tears the child tree down.
+
+    bounded-relay --max-bytes N --deadline S -- COMMAND [ARG...]
+
+On overflow or timeout the child's process group is killed and a single JSON
+error record is emitted so the consumer still receives a well-formed line.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ctypes
+import json
+import os
+import selectors
+import signal
+import stat
+import subprocess
+import sys
+import time
+from typing import Any
+
+SCHEMA_VERSION = 1
+PR_SET_PDEATHSIG = 1
+# Absolute so no library this keep-loaded path relies on is resolved by the
+# dynamic loader's ambient search, and checked before it is opened: an absolute
+# path says nothing about who may replace the file behind it.
+LIBC_PATH = "/usr/lib/libc.so.6"
+READ_SIZE = 64 * 1024
+
+_CHILD: subprocess.Popen[bytes] | None = None
+
+
+def _trusted_library(path: str) -> str:
+    """Return ``path`` only when it is a root-owned, non-writable regular file.
+
+    The same check ``keybinds-json`` applies to the commands and libraries it
+    loads, kept here rather than imported so the relay stays a standalone
+    script with no import path of its own.
+    """
+    info = os.stat(path)
+    if not stat.S_ISREG(info.st_mode):
+        raise OSError(f"{path} is not a regular file")
+    if info.st_uid != 0:
+        raise OSError(f"{path} is not owned by root")
+    if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise OSError(f"{path} is group or world writable")
+    if not info.st_mode & stat.S_IXUSR:
+        raise OSError(f"{path} is not executable")
+    return path
+
+
+def _trusted_command(path: str) -> str:
+    """Return an absolute system command only after the R7 file checks.
+
+    The relay is the last process boundary shared by every QML data source.
+    Checking here prevents an accidentally relative command from reintroducing
+    ambient PATH lookup, and prevents a caller from selecting a writable
+    interpreter or executable as the child process.
+    """
+    if not os.path.isabs(path):
+        raise OSError(f"{path} is not an absolute command")
+    return _trusted_library(path)
+
+
+def _prepare_child() -> None:
+    # Own session so the relay can signal the whole group, plus a kernel death
+    # signal so an immediately killed relay cannot leave the child running.
+    os.setsid()
+    parent = os.getppid()
+    try:
+        libc = ctypes.CDLL(_trusted_library(LIBC_PATH), use_errno=True)
+        libc.prctl(PR_SET_PDEATHSIG, signal.SIGKILL)
+    except OSError:
+        return
+    if os.getppid() != parent:
+        os._exit(1)
+
+
+def _kill_child() -> None:
+    if _CHILD is None:
+        return
+    try:
+        os.killpg(_CHILD.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    try:
+        _CHILD.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        _CHILD.kill()
+        _CHILD.wait()
+
+
+def _terminate(_signum: int, _frame: Any) -> None:
+    _kill_child()
+    os._exit(143)
+
+
+def _report(message: str) -> None:
+    record = {"schemaVersion": SCHEMA_VERSION, "type": "error", "error": message}
+    sys.stdout.buffer.write(json.dumps(record, ensure_ascii=False).encode("utf-8") + b"\n")
+    sys.stdout.buffer.flush()
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--max-bytes", type=int, required=True)
+    parser.add_argument("--deadline", type=float, required=True)
+    parser.add_argument("command", nargs=argparse.REMAINDER)
+    arguments = parser.parse_args()
+
+    command = arguments.command
+    if command and command[0] == "--":
+        command = command[1:]
+    if not command:
+        _report("bounded-relay received no command")
+        return 2
+    if arguments.max_bytes <= 0 or arguments.deadline <= 0:
+        _report("bounded-relay received an invalid budget")
+        return 2
+
+    try:
+        command[0] = _trusted_command(command[0])
+    except OSError as error:
+        _report(f"bounded-relay refused its command: {error}")
+        return 2
+
+    signal.signal(signal.SIGTERM, _terminate)
+    signal.signal(signal.SIGHUP, _terminate)
+
+    global _CHILD
+    try:
+        _CHILD = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            preexec_fn=_prepare_child,
+            close_fds=True,
+        )
+    except OSError as error:
+        _report(f"bounded-relay could not start its command: {error}")
+        return 2
+
+    # The child inherited stdin; drop the relay's own copy so the writer's EOF
+    # reaches the child instead of being held open here.
+    try:
+        os.dup2(os.open(os.devnull, os.O_RDONLY), 0)
+    except OSError:
+        pass
+
+    assert _CHILD.stdout is not None
+    streams = selectors.DefaultSelector()
+    streams.register(_CHILD.stdout, selectors.EVENT_READ)
+    deadline = time.monotonic() + arguments.deadline
+    forwarded = 0
+    output = sys.stdout.buffer
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                _kill_child()
+                _report("bounded-relay exceeded its deadline")
+                return 1
+            if not streams.select(min(remaining, 0.1)):
+                if _CHILD.poll() is not None:
+                    break
+                continue
+            chunk = os.read(_CHILD.stdout.fileno(), READ_SIZE)
+            if not chunk:
+                break
+            forwarded += len(chunk)
+            if forwarded > arguments.max_bytes:
+                _kill_child()
+                _report("bounded-relay exceeded its byte budget")
+                return 1
+            output.write(chunk)
+            output.flush()
+    except BrokenPipeError:
+        _kill_child()
+        return 1
+    finally:
+        streams.close()
+        _CHILD.stdout.close()
+
+    return _CHILD.wait(timeout=max(0.01, deadline - time.monotonic()))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

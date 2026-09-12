@@ -1,0 +1,95 @@
+// Wallpaper Weather -- Omarchy menu rows.
+//
+// Paste these keys into your ~/.config/omarchy/extensions/omarchy-menu.jsonc,
+// inside the existing top-level object -- markers included. The file
+// hot-reloads on save.
+//
+// Keep the two marker comments: `install.sh --uninstall` uses them to take
+// exactly these rows back out again without touching anything else you have
+// added to that file.
+//
+// The ids are namespaced so they never collide with Omarchy's own weather
+// forecast rows, and `checked` reads the live state file, so the tick marks
+// are always the truth rather than a cached guess.
+{
+  // >>> wallpaper-weather >>>
+  "wallpaper-weather": {
+    "icon": "󰖐",
+    "label": "Wallpaper Weather",
+    "aliases": [
+      "weather",
+      "osaka",
+      "rain",
+      "mood"
+    ],
+    "description": "Animated wallpaper weather for Osaka Jade Custom"
+  },
+  "wallpaper-weather.rain": {
+    "icon": "󰖗",
+    "label": "Rain",
+    "description": "Rain, mist, splashes and distant lightning",
+    "action": "wallpaper-weather rain",
+    "checked": "test \"$(wallpaper-weather status --json | jq -r .rain)\" = true"
+  },
+  "wallpaper-weather.day": {
+    "icon": "󰖙",
+    "label": "Sunshine",
+    "description": "Warm light, god rays and drifting dust",
+    "action": "wallpaper-weather day",
+    "checked": "test \"$(wallpaper-weather status --json | jq -r .day)\" = true"
+  },
+  "wallpaper-weather.night": {
+    "icon": "󰖔",
+    "label": "Night",
+    "description": "Stars, moonlight and fireflies",
+    "action": "wallpaper-weather night",
+    "checked": "test \"$(wallpaper-weather status --json | jq -r .night)\" = true"
+  },
+  "wallpaper-weather.clear": {
+    "icon": "󰅖",
+    "label": "Clear",
+    "description": "All moods off, still-life wallpaper",
+    "action": "wallpaper-weather clear"
+  },
+  "wallpaper-weather.storm": {
+    "icon": "󰙾",
+    "label": "Storm",
+    "description": "Heavy rain at night, high wind",
+    "action": "wallpaper-weather storm"
+  },
+  "wallpaper-weather.goldenhour": {
+    "icon": "󰖚",
+    "label": "Golden Hour",
+    "description": "Sun and stars at once",
+    "action": "wallpaper-weather goldenhour"
+  },
+  "wallpaper-weather.thunder": {
+      "icon": "󱐋",
+      "label": "Thunder",
+      "description": "Lightning; needs rain to show",
+      "action": "wallpaper-weather thunder",
+      "checked": "test \"$(wallpaper-weather status --json | jq -r .thunder)\" = true"
+  },
+  "wallpaper-weather.fog": {
+    "icon": "󰖑",
+    "label": "Fog",
+    "description": "Haze on the band the picture already has",
+    "action": "wallpaper-weather fog",
+    "checked": "test \"$(wallpaper-weather status --json | jq -r .fog)\" = true"
+  },
+  "wallpaper-weather.follow-sun": {
+      "icon": "󰖜",
+      "label": "Follow The Sun",
+      "description": "Keep day and night tracking the local sunrise and sunset",
+      "action": "wallpaper-weather follow-sun",
+      "checked": "test \"$(wallpaper-weather status --json | jq -r .followSun)\" = true"
+  },
+  "wallpaper-weather.follow-weather": {
+      "icon": "󰇧",
+      "label": "Match Real Weather",
+      "description": "Keep mirroring the weather outside",
+      "action": "wallpaper-weather follow-weather",
+      "checked": "test \"$(wallpaper-weather status --json | jq -r .followWeather)\" = true"
+  }
+  // <<< wallpaper-weather <<<
+}

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.aswenia.omacord",
+  "name": "omacord",
+  "version": "1.0.0",
+  "author": "ASwenia",
+  "license": "MIT",
+  "description": "A Vencord theme that follows your Omarchy desktop theme. Recolours Discord live on every theme change, with no client patching and no restart. Works with Vesktop and with Vencord on desktop Discord.",
+  "homepage": "https://github.com/ASwenia/omacord",
+  "repository": "https://github.com/ASwenia/omacord",
+  "kinds": [
+    "service"
+  ],
+  "entryPoints": {
+    "service": "Service.qml"
+  }
+}

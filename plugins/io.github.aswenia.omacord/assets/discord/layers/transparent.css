@@ -1,0 +1,31 @@
+/* omacord layer: transparent
+   Lets the Omarchy wallpaper through the chrome when the compositor is
+   blurring the window. Requires Vesktop's "Transparency" / Vencord's
+   `transparent` setting; inert otherwise, since Discord paints an opaque
+   body underneath. */
+
+:root {
+  --oc-alpha: 0.86;
+}
+
+body,
+#app-mount,
+[class*="appMount_"],
+[class*="app_"],
+[class*="bg_"] {
+  background-color: transparent !important;
+}
+
+[class*="sidebar_"],
+[class*="guilds_"],
+[class*="chat_"],
+[class*="membersWrap_"] {
+  background-color: rgba(var(--omacord-bg-rgb, 26, 27, 38), var(--oc-alpha)) !important;
+}
+
+[class*="modal_"],
+[class*="menu_"][role="menu"],
+[class*="popout_"] {
+  background-color: rgba(var(--omacord-bg-rgb, 26, 27, 38), 0.96) !important;
+  backdrop-filter: blur(12px);
+}

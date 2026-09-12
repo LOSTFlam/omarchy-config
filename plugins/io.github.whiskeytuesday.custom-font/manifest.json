@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.whiskeytuesday.custom-font",
+  "name": "Custom Font",
+  "version": "0.1.0",
+  "author": "Elija Sorensen",
+  "license": "MIT",
+  "homepage": "https://github.com/whiskeytuesday/om-custom-font",
+  "description": "Install a .ttf or .otf font file from disk and wire it into Omarchy — for the case Omarchy's own `omarchy install font` doesn't cover: unpackaged fonts sitting on disk.",
+  "kinds": ["overlay", "service"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "Overlay.qml",
+    "service": "Service.qml"
+  }
+}

@@ -1,0 +1,1785 @@
+import QtQuick
+import QtQuick.Controls
+import Quickshell
+import Quickshell.Io
+import qs.Commons
+import qs.Ui
+
+import "Model.js" as Model
+
+Panel {
+  id: root
+  moduleName: "gotar.omarchy-themes"
+  manageIpc: false
+
+  property var anchorItem: null
+  property var hostWidget: null
+
+  // shell-theme-aware palette
+  readonly property color fg: barForeground
+  readonly property color dim: Qt.darker(fg, 1.5)
+  readonly property color faint: Qt.darker(fg, 2.2)
+  readonly property color okC: "#8fd08a"
+  readonly property color errC: "#e74c5b"
+  readonly property string mono: Style.font.family
+
+  // ---- data
+  property var db: null                 // { base, fetchedAt, count, entries: [...] }
+  property var filtered: []             // indexes into db.entries passing the filters
+  property var facets: ({ tone: {}, color: {}, resMin: {}, resMax: {} })
+  property string q: ""
+  property string tone: ""
+  property string color: ""
+  property string resMin: ""
+  property string resMax: ""
+  property var crumbs: []
+
+  property int phase: 0                 // 0 loading, 1 ready, 2 error
+  property string phaseMsg: ""
+  property string currentTheme: ""
+
+  // ---- detail (variant picker)
+  property int detailIdx: -1
+  property string detailPath: ""
+  property int detailVariant: 0
+  property var detailVariants: []
+  property int applyPhase: 0            // 0 none, 1 installing, 2 setting, 3 done, 4 error
+  property string applySlug: ""
+  property string applyMsg: ""
+  property int cursorIdx: 0
+
+  // ---- single-flight operation state ----
+  // Only one apply/wallpaper operation may run at a time; UI entry points are
+  // gated on operationBusy so a fast user can never start a second install
+  // while one is in flight (which used to let an unstable slug win).
+  readonly property bool operationBusy:
+    applyProc.running || wallpaperProc.running || themeSetProc.running
+    || root.themeSetCycleActive || root.activationPending
+  property string operationKind: ""     // "" | "theme" | "wallpaper"
+  property bool pendingForce: false
+  property bool fetchExitSeen: false
+  property bool fetchStreamSeen: false
+  property bool fetchExpectedStop: false
+  readonly property bool fetchSettling:
+    root.fetchExitSeen !== root.fetchStreamSeen
+    || (root.fetchExpectedStop && (!root.fetchExitSeen || !root.fetchStreamSeen))
+  property string applyWarn: ""
+  property string themeSetError: ""
+  property bool themeSetCycleActive: false
+  property bool themeSetExitSeen: false
+  property bool themeSetStderrSeen: false
+  property int themeSetExitCode: -1
+  property bool activationPending: false
+  property int activateCheckCount: 0
+
+  readonly property bool hasActiveFilters:
+    q !== "" || tone !== "" || color !== "" || resMin !== "" || resMax !== ""
+  // ---- auto random + wallpaper-only
+  property bool wallpaperOnly: false
+  property int autoIntervalSec: 0 // 0=Off, 300=5m, 900=15m, 1800=30m, 3600=60m
+  readonly property var autoOptions: [0, 300, 900, 1800, 3600]
+  readonly property var autoLabels: ["Off", "5m", "15m", "30m", "60m"]
+  readonly property string modeLabel:
+    applyPhase > 0 ? "APPLY" :
+    detailPath !== "" ? "VIEW" : "BROWSE"
+  readonly property int gridCols: 4
+
+  function scriptPath(name) {
+    var u = String(Qt.resolvedUrl("bin/" + name))
+    if (u.startsWith("file://")) return u.substring(7)
+    return u
+  }
+  function baseOf() { return db ? String(db.base || "") : "" }
+  // Builds a media URL. Both parts are validate-it-early: `base` comes from
+  // the manifest (https + allowlisted host) and rel must be a safe relative
+  // path — anything else yields "" so Image/Process never see it.
+  function safeRel(rel) {
+    // Mirrors _sec.safe_relpath: '..' and '.' are rejected as path components,
+    // not substrings, so file names like "img..jpg" still load. Trailing slash
+    // and "//" are also rejected (would make Image/Process hit a directory).
+    var s = String(rel || "")
+    return s.length <= 512 && /^[A-Za-z0-9_./+@=~-]+$/.test(s)
+      && !s.startsWith("/") && !s.startsWith("\\")
+      && s.split("/").indexOf("..") === -1 && s.split("/").indexOf(".") === -1
+      && s.indexOf(":") === -1 && !s.endsWith("/") && s.indexOf("//") === -1
+  }
+  function url(rel) {
+    var b = baseOf()
+    if (!b || !/^https:\/\/[A-Za-z0-9.-]+\//.test(b + "/")) return ""
+    if (!root.safeRel(rel)) return ""
+    return b + "/" + String(rel).replace(/^\/+/, "")
+  }
+  function entryAt(i) { return db && db.entries ? db.entries[i] : null }
+
+  function setQuery(text) {
+    root.q = String(text || "")
+    qTimer.restart()
+  }
+
+  function buildCrumbs() {
+    var c = []
+    if (root.q) c.push({ key: "search", label: "q:\u0022" + root.q + "\u0022" })
+    if (root.tone) c.push({ key: "tone", label: "tone:" + root.tone })
+    if (root.color) c.push({ key: "color", label: "color:" + root.color })
+    if (root.resMin || root.resMax) {
+      var v
+      if (root.resMin && root.resMax) v = "res:" + root.resMin + ".." + root.resMax
+      else if (root.resMin) v = "res:\u2265" + root.resMin
+      else v = "res:\u2264" + root.resMax
+      c.push({ key: "res", label: v })
+    }
+    root.crumbs = c
+  }
+
+  function refreshFilters() {
+    if (!root.db) return
+    var res = Model.apply(root.db.entries, root.q, root.tone, root.color,
+                          root.resMin, root.resMax)
+    root.filtered = res.filtered
+    root.facets = res.facets
+    if (root.cursorIdx >= res.filtered.length)
+      root.cursorIdx = Math.max(0, res.filtered.length - 1)
+    root.buildCrumbs()
+  }
+
+  function toggleFacet(key, value) {
+    if (key === "tone") root.tone = (root.tone === value) ? "" : value
+    else if (key === "color") root.color = (root.color === value) ? "" : value
+    else if (key === "res-min") root.resMin = (root.resMin === value) ? "" : value
+    else if (key === "res-max") root.resMax = (root.resMax === value) ? "" : value
+    root.refreshFilters()
+  }
+
+  function clearCrumb(key) {
+    if (key === "search") { root.q = ""; searchField.text = "" }
+    else if (key === "tone") root.tone = ""
+    else if (key === "color") root.color = ""
+    else if (key === "res") { root.resMin = ""; root.resMax = "" }
+    root.refreshFilters()
+  }
+
+  function resetFilters() {
+    root.tone = ""
+    root.color = ""
+    root.resMin = ""
+    root.resMax = ""
+    root.q = ""
+    searchField.text = ""
+    root.refreshFilters()
+  }
+
+  function startLoad(force) {
+    if (fetchProc.running || root.fetchSettling) {
+      // Queue the forced replacement, but never reuse the Process until both
+      // exit and buffered-stream completion from the old generation arrived.
+      if (force) root.pendingForce = true
+      return
+    }
+    root.fetchExitSeen = false
+    root.fetchStreamSeen = false
+    root.fetchExpectedStop = false
+    root.phase = 0
+    root.phaseMsg = force ? "re-fetching index (35 MB)\u2026" : "loading index\u2026"
+    var sc=root.scriptPath("fetch-manifest.py")
+    fetchProc.command = ["python3", sc].concat(force ? ["--force"] : [])
+    fetchWatchdog.start()
+    fetchProc.running = true
+  }
+
+  function finishFetchCycle() {
+    if (!root.fetchExitSeen || !root.fetchStreamSeen) return
+    root.fetchExpectedStop = false
+    if (root.pendingForce) {
+      root.pendingForce = false
+      root.startLoad(true)
+    }
+  }
+
+  function handleFetchOutput(text) {
+    fetchWatchdog.stop()
+    root.fetchStreamSeen = true
+    if (root.fetchExpectedStop) {
+      root.finishFetchCycle()
+      return
+    }
+    var j = null
+    try { j = JSON.parse(text) } catch (e) { j = null }
+    if (!j || j.error || !j.entries) {
+      root.phase = 2
+      root.phaseMsg = (j && j.error) ? String(j.error) : "bad manifest"
+      root.finishFetchCycle()
+      return
+    }
+    root.db = j
+    Model.prep(j.entries)
+    root.phase = 1
+    root.phaseMsg = ""
+    root.cursorIdx = 0
+    root.refreshFilters()
+    root.loadCurrentTheme()
+    root.finishFetchCycle()
+  }
+
+  function loadCurrentTheme() {
+    if (themeCurProc.running) return
+    themeCurProc.command = ["omarchy", "theme", "current"]
+    themeCurProc.running = true
+  }
+
+  function currentThemeSlug() {
+    return Model.slugFromThemeCurrent(root.currentTheme)
+  }
+
+  function moveCursor(dx, dy) {
+    var n = root.filtered.length
+    if (!root.db || !n) return
+    if (root.cursorIdx < 0) root.cursorIdx = 0
+    if (root.cursorIdx >= n) root.cursorIdx = n - 1
+    var cols = root.gridCols
+    var row = Math.floor(root.cursorIdx / cols)
+    var col = root.cursorIdx % cols
+    var lastRow = Math.floor((n - 1) / cols)
+    if (dy > 0) {
+      row = Math.min(lastRow, row + 1)
+      col = Math.min(col, (n - 1) - row * cols)
+    } else if (dy < 0) {
+      row = Math.max(0, row - 1)
+      col = Math.min(col, (n - 1) - row * cols)
+    } else if (dx > 0) {
+      col = Math.min(cols - 1, col + 1)
+    } else if (dx < 0) {
+      col = Math.max(0, col - 1)
+    }
+    root.cursorIdx = Math.max(0, Math.min(n - 1, row * cols + col))
+    gridView.positionViewAtIndex(root.cursorIdx, GridView.Contain)
+  }
+
+  function openDetailAt(pos) {
+    if (!root.db || !root.filtered.length) return
+    pos = Math.max(0, Math.min(root.filtered.length - 1, Math.max(0, pos)))
+    var full = root.filtered[pos]
+    var e = root.db.entries[full]
+    root.detailIdx = full
+    root.detailPath = e.p
+    root.detailVariants = Model.variantsOf(e)
+    root.detailVariant = 0
+    // Only reset the apply feedback when nothing is in flight.
+    if (!root.operationBusy) {
+      root.applyPhase = 0
+      root.applyMsg = ""
+      root.applyWarn = ""
+    }
+  }
+
+  function closeDetail() {
+    root.detailIdx = -1
+    root.detailPath = ""
+    root.detailVariants = []
+    // Keep an in-flight operation's state visible so closing the detail view
+    // cannot make a running apply look like it was cancelled.
+    if (!root.operationBusy) {
+      root.applyPhase = 0
+      root.applyMsg = ""
+      root.applyWarn = ""
+    }
+  }
+
+  function detailNav(delta) {
+    if (!root.db || !root.filtered.length) return
+    var pos = root.filtered.indexOf(root.detailIdx)
+    if (pos < 0) pos = 0
+    pos = (pos + delta + root.filtered.length) % root.filtered.length
+    root.openDetailAt(pos)
+  }
+
+  function cycleVariant(d) {
+    var n = root.detailVariants.length
+    if (!n) return
+    root.detailVariant = ((root.detailVariant + d) % n + n) % n
+  }
+
+  function applySelected() {
+    if (root.operationBusy || root.applyPhase === 1 || root.applyPhase === 2) return
+    var vs = root.detailVariants
+    if (!vs.length) return
+    var v = vs[root.detailVariant % vs.length]
+    if (!v.n || !root.baseOf() || (!root.wallpaperOnly && !v.ct)) {
+      root.applyPhase = 4
+      root.applyMsg = "missing apply data in index"
+      return
+    }
+    if (!root.safeSlug(v.n)) {
+      root.applyPhase = 4
+      root.applyMsg = "theme name is not a safe slug"
+      return
+    }
+    root.applySlug = v.n
+    root.applyWarn = ""
+    root.applyPhase = 1
+    root.applyMsg = "downloading " + v.n
+    var e = (root.db && root.detailIdx >= 0) ? root.db.entries[root.detailIdx] : null
+    // Full-res original as the fallback background (med is a downscaled copy).
+    var fallbackP = e ? (e.p || "") : ""
+    // wallpaper-only: set image directly, no theme
+    if (root.wallpaperOnly) {
+      var rel = e ? (e.med || e.p || v.bg || "") : (v.bg || "")
+      if (!rel) { root.applyPhase = 4; root.applyMsg = "missing wallpaper"; return }
+      root.applySlug = v.n
+      root.applyPhase = 1
+      root.applyMsg = "setting wallpaper…"
+      root.operationKind = "wallpaper"
+      wallpaperProc.command = ["timeout", "340", "python3", root.scriptPath("set-wallpaper.py"), root.baseOf(), rel]
+      wallpaperProc.running = true
+      return
+    }
+    root.operationKind = "theme"
+    applyProc.command = ["timeout", "700", "python3", root.scriptPath("apply-theme.py"),
+                         v.n, root.baseOf(), v.ct, v.bg, fallbackP].slice()
+    applyProc.running = true
+  }
+
+  function applicableThemeVariants(entry) {
+    var all = Model.variantsOf(entry)
+    var out = []
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].n && all[i].ct && root.safeSlug(all[i].n)) out.push(all[i])
+    }
+    return out
+  }
+
+  function applyRandom() {
+    if (!db || !filtered.length) return
+    if (root.operationBusy) return
+    // Pick a wallpaper that can actually be applied so shuffle/AUTO never
+    // silently no-ops on an entry that lacks a variant or media path.
+    var cands = []
+    if (wallpaperOnly) {
+      for (var i = 0; i < filtered.length; i++) {
+        var e = db.entries[filtered[i]]
+        if (e && (e.med || e.p)) cands.push(filtered[i])
+      }
+      if (!cands.length) {
+        applyPhase = 4; applyMsg = "no wallpaper available in current filter"
+        return
+      }
+      var full = cands[Math.floor(Math.random() * cands.length)]
+      var ee = db.entries[full]
+      var rel = ee.med || ee.p
+      // show in detail briefly then apply
+      detailIdx = full; detailPath = ee.p; detailVariants = Model.variantsOf(ee); detailVariant = 0
+      applyWallpaper(rel)
+    } else {
+      for (var j = 0; j < filtered.length; j++) {
+        var ej = db.entries[filtered[j]]
+        if (ej && root.applicableThemeVariants(ej).length) cands.push(filtered[j])
+      }
+      if (!cands.length) {
+        applyPhase = 4; applyMsg = "no theme variants in current filter"
+        return
+      }
+      var f2 = cands[Math.floor(Math.random() * cands.length)]
+      var e2 = db.entries[f2]
+      var vs2 = root.applicableThemeVariants(e2)
+      var v2 = vs2[Math.floor(Math.random() * vs2.length)]
+      detailIdx = f2; detailPath = e2.p; detailVariants = vs2; detailVariant = vs2.indexOf(v2)
+      applySelected()
+    }
+  }
+  function applyWallpaper(rel) {
+    if (!rel || !baseOf()) return
+    if (root.operationBusy) return
+    applyPhase = 1; applyMsg = "setting wallpaper…"; applyWarn = ""
+    root.operationKind = "wallpaper"
+    wallpaperProc.command = ["timeout", "340", "python3", root.scriptPath("set-wallpaper.py"), baseOf(), rel]
+    wallpaperProc.running = true
+  }
+  function setAutoInterval(sec) { autoIntervalSec = sec }
+  // Label of the currently selected AUTO step ("Off"/"5m"/…), from the
+  // parallel autoOptions/autoLabels arrays.
+  function autoSelLabel() {
+    var i = root.autoOptions.indexOf(root.autoIntervalSec)
+    return i >= 0 ? root.autoLabels[i] : "Off"
+  }
+
+  // Slug validation: theme names come from the remote index and are passed as
+  // argv to `omarchy theme set`. Only lowercase slugs with [a-z0-9._-] are
+  // allowed; '..' is rejected as a substring (mirrors _sec.safe_slug).
+  function safeSlug(s) {
+    s = String(s || "")
+    return /^[a-z0-9][a-z0-9._-]*$/.test(s) && s.indexOf("..") === -1 && s.length <= 256
+  }
+
+  onOpenedChanged: {
+    if (opened) {
+      root.startLoad(false)
+      root.loadCurrentTheme()
+    }
+  }
+  IpcHandler {
+    target: "gotar.omarchy-themes"
+    function open(): string { root.open(); return "ok" }
+    function close(): string { root.close(); return "ok" }
+    function toggle(): string { root.toggle(); return "ok" }
+  }
+
+  Component.onCompleted: {
+    if (opened) {
+      root.startLoad(false)
+      root.loadCurrentTheme()
+    }
+  }
+
+  // ---- processes ----------------------------------------------------------
+
+  Process {
+    id: fetchProc
+    running: false
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.handleFetchOutput(String(text || ""))
+    }
+    onExited: function(exitCode) {
+      root.fetchExitSeen = true
+      if (!root.fetchExpectedStop && exitCode !== 0 && root.phase === 0) {
+        root.phase = 2
+        root.phaseMsg = "index fetch failed (exit " + exitCode + ")"
+      }
+      root.finishFetchCycle()
+    }
+  }
+
+  Timer {
+    id: fetchWatchdog
+    interval: 180000
+    repeat: false
+    onTriggered: {
+      if (root.phase === 0) {
+        // Ignore buffered output from the canceled generation and keep retries
+        // queued until both exit and stream-finished callbacks have settled.
+        root.fetchExpectedStop = true
+        fetchProc.running = false
+        root.phase = 2
+        root.phaseMsg = "fetch timed out \u2014 the 35 MB index is unreachable"
+      }
+    }
+  }
+
+  Timer {
+    id: qTimer
+    interval: 150
+    repeat: false
+    onTriggered: root.refreshFilters()
+  }
+  Timer {
+    id: autoTimer
+    interval: root.autoIntervalSec * 1000
+    repeat: true
+    running: root.autoIntervalSec > 0 && root.db !== null && root.filtered.length > 0
+    onTriggered: root.applyRandom()
+  }
+
+  function finishThemeSetCycle() {
+    if (!root.themeSetCycleActive || !root.themeSetExitSeen || !root.themeSetStderrSeen) return
+    root.themeSetCycleActive = false
+    if (root.themeSetExitCode === 0) {
+      root.activationPending = true
+      root.activateCheckCount = 0
+      root.activateCheckTimer.start()
+    } else {
+      root.applyPhase = 4
+      root.applyMsg = "theme activation failed (exit " + root.themeSetExitCode + ")"
+        + (root.themeSetError ? ": " + root.themeSetError : "")
+      root.operationKind = ""
+    }
+  }
+
+  // Activate-state confirmation: after an observable successful
+  // `omarchy theme set`, poll the canonical current slug.
+  function evalActivation() {
+    if (root.currentThemeSlug() === root.applySlug.toLowerCase()) {
+      root.activationPending = false
+      root.activateCheckTimer.stop()
+      root.applyPhase = 3
+      root.applyMsg = "\u2713 " + root.applySlug + (root.applyWarn ? " — background failed: " + root.applyWarn : "")
+      root.operationKind = ""
+    } else {
+      root.activateCheckCount += 1
+      if (root.activateCheckCount > 5) {
+        root.activationPending = false
+        root.activateCheckTimer.stop()
+        root.applyPhase = 4
+        root.applyMsg = "installed, but activation not confirmed (current: " + root.currentTheme + ")" + (root.applyWarn ? " — background failed: " + root.applyWarn : "")
+        root.operationKind = ""
+      } else {
+        root.activateCheckTimer.start()
+      }
+    }
+  }
+
+  Process {
+    id: themeCurProc
+    running: false
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.currentTheme = String(text || "").trim()
+        if (root.activationPending) root.evalActivation()
+      }
+    }
+  }
+
+  Process {
+    id: applyProc
+    running: false
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: function(text) {
+        try {
+          var j = JSON.parse(String(text || "{}"))
+          if (j && j.error) root.applyMsg = String(j.error)
+          else if (j && j.warning) {
+            root.applyWarn = String(j.warning)
+            root.applyMsg = "colors ok, background failed: " + root.applyWarn
+          }
+        } catch (e) {}
+      }
+    }
+    onExited: function(exitCode) {
+      if (exitCode === 0) {
+        if (!root.safeSlug(root.applySlug)) {
+          root.applyPhase = 4
+          root.applyMsg = "theme name is not a safe slug"
+          root.operationKind = ""
+          return
+        }
+        root.applyPhase = 2
+        root.applyMsg = "activating " + root.applySlug + (root.applyWarn ? " (background failed)" : "") + "…"
+        root.close()
+        root.themeSetError = ""
+        root.themeSetExitSeen = false
+        root.themeSetStderrSeen = false
+        root.themeSetExitCode = -1
+        root.themeSetCycleActive = true
+        themeSetProc.command = ["timeout", "180", "omarchy", "theme", "set", root.applySlug]
+        themeSetProc.running = true
+      } else {
+        root.applyPhase = 4
+        if (!root.applyMsg || root.applyMsg.startsWith("downloading")) root.applyMsg = "install failed" + (root.applyMsg ? ": " + root.applyMsg : "")
+        root.operationKind = ""
+      }
+    }
+  }
+
+  Process {
+    id: themeSetProc
+    running: false
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.themeSetError = String(text || "").trim()
+        root.themeSetStderrSeen = true
+        root.finishThemeSetCycle()
+      }
+    }
+    onExited: function(exitCode) {
+      root.themeSetExitCode = exitCode
+      root.themeSetExitSeen = true
+      root.finishThemeSetCycle()
+    }
+  }
+
+  Process {
+    id: wallpaperProc
+    running: false
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: function(text) { try { var j=JSON.parse(String(text||"{}")); if(j&&j.error) root.applyMsg=String(j.error) } catch(e) {} } }
+    onExited: function(exitCode) {
+      root.operationKind = ""
+      if (exitCode === 0) { root.applyPhase = 3; root.applyMsg = "\u2713 wallpaper set"; root.close() }
+      else { root.applyPhase = 4; if(!root.applyMsg || root.applyMsg.startsWith("setting")) root.applyMsg = "wallpaper failed (exit " + exitCode + ")" }
+    }
+  }
+  Timer {
+    id: activateCheckTimer
+    interval: 2000
+    repeat: false
+    onTriggered: root.loadCurrentTheme()
+  }
+
+  // ---- UI ------------------------------------------------------------------
+
+  KeyboardPanel {
+    id: panel
+    anchorItem: root.anchorItem
+    owner: root.hostWidget || root
+    bar: root.bar
+    open: root.opened
+    focusTarget: keyCatcher
+    contentWidth: panel.fittedContentWidth(Style.space(1020))
+    contentHeight: panel.fittedContentHeight(Style.space(720))
+
+    PanelKeyCatcher {
+      id: keyCatcher
+      anchors.fill: parent
+      blocked: searchField.activeFocus
+      onCloseRequested: {
+        if (root.detailPath !== "") root.closeDetail()
+        else root.close()
+      }
+      onTabRequested: function(direction) { root.switchPanel(direction) }
+      onMoveRequested: function(dx, dy) {
+        if (root.detailPath !== "") {
+          if (dx !== 0) root.detailNav(dx > 0 ? 1 : -1)
+          else if (dy !== 0) root.cycleVariant(dy > 0 ? 1 : -1)
+        } else if (root.phase === 1) {
+          root.moveCursor(dx, dy)
+        }
+      }
+      onActivateRequested: {
+        if (root.detailPath !== "") root.applySelected()
+        else if (root.phase === 1) root.openDetailAt(root.cursorIdx)
+      }
+      onDeleteRequested: root.resetFilters()
+      onTextKey: function(t) {
+        if (t === "/" && root.detailPath === "") searchField.forceActiveFocus()
+        else if ((t === "r" || t === "R") && root.detailPath === "") root.startLoad(true)
+      }
+
+      // ============================ main browse view =======================
+      Item {
+        id: content
+        anchors.fill: parent
+        visible: root.phase === 1
+
+        Item {
+          id: headerRow
+          anchors.left: parent.left
+          anchors.leftMargin: Style.spacing.md
+          anchors.top: parent.top
+          anchors.topMargin: Style.spacing.md
+          anchors.right: parent.right
+          anchors.rightMargin: Style.spacing.md
+          height: Style.space(30)
+
+          Text {
+            id: slashText
+            text: "/"
+            color: root.dim
+            font.family: root.mono
+            font.pointSize: Style.font.body
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+          }
+          Item {
+            id: shuffleBtn
+            width: 24
+            height: 24
+            enabled: !root.operationBusy
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            Text {
+              anchors.centerIn: parent
+              text: "\uF074"
+              color: root.faint
+              font.pointSize: Style.font.caption
+              font.bold: true
+            }
+            MouseArea {
+              id: shuffleHover
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.applyRandom()
+            }
+            PanelToolTip {
+              visible: shuffleHover.containsMouse
+              text: "Apply a random wallpaper / theme"
+            }
+          }
+          Item {
+            id: refreshBtn
+            width: 24
+            height: 24
+            anchors.right: shuffleBtn.left
+            anchors.rightMargin: Style.spacing.xs
+            anchors.verticalCenter: parent.verticalCenter
+            Text {
+              anchors.centerIn: parent
+              text: "R"
+              color: root.faint
+              font.pointSize: Style.font.caption
+              font.bold: true
+            }
+            MouseArea {
+              id: refreshHover
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.startLoad(true)
+            }
+            PanelToolTip {
+              visible: refreshHover.containsMouse
+              text: "Re-fetch the index (35 MB)"
+            }
+          }
+          Item {
+            id: resetBtn
+            width: 24
+            height: 24
+            visible: root.hasActiveFilters
+            anchors.right: refreshBtn.left
+            anchors.rightMargin: Style.spacing.sm
+            anchors.verticalCenter: parent.verticalCenter
+            Text {
+              anchors.centerIn: parent
+              text: "\u00d7"
+              color: root.dim
+              font.pointSize: Style.font.body
+            }
+            MouseArea {
+              id: resetHover
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.resetFilters()
+            }
+            PanelToolTip {
+              visible: resetHover.containsMouse
+              text: "Reset all filters"
+            }
+          }
+          Text {
+            id: countText
+            text: root.filtered.length + " / " + (root.db ? root.db.count : 0)
+            color: root.dim
+            font.family: root.mono
+            font.pointSize: Style.font.caption
+            anchors.right: resetBtn.left
+            anchors.rightMargin: Style.spacing.sm
+            anchors.verticalCenter: parent.verticalCenter
+          }
+          TextField {
+            id: searchField
+            anchors.left: slashText.right
+            anchors.leftMargin: Style.spacing.sm
+            anchors.right: countText.left
+            anchors.rightMargin: Style.spacing.sm
+            anchors.verticalCenter: parent.verticalCenter
+            leftPadding: 8
+            rightPadding: 8
+            topPadding: 4
+            bottomPadding: 4
+            color: root.fg
+            font.family: root.mono
+            font.pointSize: Style.font.body
+            placeholderText: "search themes, palettes, tags\u2026"
+            placeholderTextColor: root.faint
+            background: BorderSurface {
+              radius: 6
+              color: searchField.activeFocus ? Qt.alpha(Color.background, 0.55) : Qt.alpha(Color.background, 0.32)
+              borderSpec: searchField.activeFocus
+                ? Border.flat(root.dim, 1)
+                : Border.flat(Qt.alpha(root.fg, 0.12), 1)
+            }
+            onTextChanged: root.setQuery(text)
+            onAccepted: {
+              // Flush the debounced search before opening, or Enter within the
+              // 150 ms window would open the result from the previous query.
+              qTimer.stop()
+              root.refreshFilters()
+              root.openDetailAt(root.cursorIdx)
+              searchField.focus = false
+              keyCatcher.forceActiveFocus()
+            }
+            Keys.onEscapePressed: {
+              searchField.text = ""
+              root.setQuery("")
+              searchField.focus = false
+              keyCatcher.forceActiveFocus()
+            }
+          }
+        }
+
+        // ----------------------- mode / auto bar -------------------------
+        Row {
+          id: modeRow
+          anchors.left: parent.left
+          anchors.leftMargin: Style.spacing.md
+          anchors.right: parent.right
+          anchors.rightMargin: Style.spacing.md
+          anchors.top: headerRow.bottom
+          anchors.topMargin: Style.spacing.md
+          height: 28
+          spacing: Style.space(32)
+
+          Row {
+            id: modeGroup
+            spacing: Style.spacing.md
+            anchors.verticalCenter: parent.verticalCenter
+            Text {
+              text: "MODE"
+              color: root.faint
+              font.family: root.mono
+              font.pointSize: Style.font.caption
+              font.bold: true
+              anchors.verticalCenter: parent.verticalCenter
+            }
+            Item {
+              id: modeBtns
+              width: Style.space(150)
+              height: 22
+              anchors.verticalCenter: parent.verticalCenter
+              Row {
+                width: parent.width
+                spacing: Style.spacing.xs
+                Rectangle {
+                  width: modeBtns.width/2 - 2; height: 22; radius: 4
+                  color: !root.wallpaperOnly ? Style.selectedFill : Style.hoverFill
+                  activeFocusOnTab: true
+                  Text { anchors.centerIn: parent; text: "Theme"; color: !root.wallpaperOnly ? root.fg : root.dim; font.family: root.mono; font.pointSize: Style.font.caption }
+                  MouseArea {
+                    id: themeHover
+                    anchors.fill: parent; hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.wallpaperOnly = false
+                  }
+                  Keys.onReturnPressed: root.wallpaperOnly = false
+                  Keys.onSpacePressed: root.wallpaperOnly = false
+                  Accessible.role: Accessible.Button
+                  Accessible.name: "Theme mode"
+                  Accessible.checked: !root.wallpaperOnly
+                  Accessible.onPressAction: root.wallpaperOnly = false
+                  PanelToolTip {
+                    visible: themeHover.containsMouse
+                    text: "Theme mode: apply one-click theme variants"
+                  }
+                }
+                Rectangle {
+                  width: modeBtns.width/2 - 2; height: 22; radius: 4
+                  color: root.wallpaperOnly ? Style.selectedFill : Style.hoverFill
+                  activeFocusOnTab: true
+                  Text { anchors.centerIn: parent; text: "Wallpaper"; color: root.wallpaperOnly ? root.fg : root.dim; font.family: root.mono; font.pointSize: Style.font.caption }
+                  MouseArea {
+                    id: wallpaperHover
+                    anchors.fill: parent; hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.wallpaperOnly = true
+                  }
+                  Keys.onReturnPressed: root.wallpaperOnly = true
+                  Keys.onSpacePressed: root.wallpaperOnly = true
+                  Accessible.role: Accessible.Button
+                  Accessible.name: "Wallpaper mode"
+                  Accessible.checked: root.wallpaperOnly
+                  Accessible.onPressAction: root.wallpaperOnly = true
+                  PanelToolTip {
+                    visible: wallpaperHover.containsMouse
+                    text: "Wallpaper mode: set the image directly"
+                  }
+                }
+              }
+            }
+          }
+
+          Row {
+            id: autoGroup
+            spacing: Style.spacing.md
+            anchors.verticalCenter: parent.verticalCenter
+            Text {
+              text: "AUTO"
+              color: root.faint
+              font.family: root.mono
+              font.pointSize: Style.font.caption
+              font.bold: true
+              anchors.verticalCenter: parent.verticalCenter
+            }
+            Item {
+              id: autoBtns
+              width: Style.space(135)
+              height: 20
+              anchors.verticalCenter: parent.verticalCenter
+              Row {
+                width: parent.width
+                spacing: 2
+                Repeater {
+                  model: root.autoLabels
+                  delegate: Rectangle {
+                    width: (autoBtns.width - 8)/5; height: 20; radius: 4
+                    color: root.autoLabels[index] === root.autoSelLabel() ? Style.selectedFill : Style.hoverFill
+                    activeFocusOnTab: true
+                    Text { anchors.centerIn: parent; text: modelData; color: root.autoLabels[index] === root.autoSelLabel() ? root.fg : root.dim; font.family: root.mono; font.pointSize: 9 }
+                    MouseArea {
+                      id: autoBtnHover
+                      anchors.fill: parent; hoverEnabled: true
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: { var sec=root.autoOptions[index]; root.autoIntervalSec=sec }
+                    }
+                    Keys.onReturnPressed: { root.autoIntervalSec=root.autoOptions[index] }
+                    Keys.onSpacePressed: { root.autoIntervalSec=root.autoOptions[index] }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "AUTO " + modelData
+                    Accessible.checked: root.autoSelLabel() === modelData
+                    Accessible.onPressAction: { root.autoIntervalSec=root.autoOptions[index] }
+                    PanelToolTip {
+                      visible: autoBtnHover.containsMouse
+                      text: root.autoOptions[index] === 0
+                        ? "Auto-random: off"
+                        : "Auto-apply a random wallpaper every " + root.autoLabels[index]
+                    }
+                  }
+                }
+              }
+            }
+            Text {
+              text: root.autoIntervalSec > 0 ? "every " + root.autoSelLabel() : "off"
+              color: root.faint
+              font.family: root.mono
+              font.pointSize: Style.font.caption
+              anchors.verticalCenter: parent.verticalCenter
+            }
+            Item {
+              id: nowBtn
+              width: nowText.implicitWidth + 6
+              height: 20
+              enabled: !root.operationBusy
+              anchors.verticalCenter: parent.verticalCenter
+              Text {
+                id: nowText
+                text: "↻ now"
+                color: root.dim
+                font.family: root.mono
+                font.pointSize: Style.font.caption
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+              }
+              MouseArea {
+                id: nowHover
+                anchors.fill: parent; hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.applyRandom()
+              }
+              PanelToolTip {
+                visible: nowHover.containsMouse
+                text: "Apply a random wallpaper now"
+              }
+            }
+          }
+        }
+
+        Item {
+          id: bodyRow
+          anchors.left: parent.left
+          anchors.leftMargin: Style.spacing.md
+          anchors.right: parent.right
+          anchors.rightMargin: Style.spacing.md
+          anchors.top: modeRow.bottom
+          anchors.topMargin: Style.spacing.md
+          anchors.bottom: statusRow.top
+          anchors.bottomMargin: Style.spacing.md
+
+          // ----------------------- filter rail ---------------------------
+          Column {
+            id: filterCol
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: Style.space(150)
+            spacing: Style.spacing.md
+
+            Text {
+              text: "TONE"
+              color: root.faint
+              font.family: root.mono
+              font.pointSize: Style.font.caption
+              font.bold: true
+            }
+            Repeater {
+              model: Model.TONES
+              delegate: Item {
+                id: toneRow
+                width: filterCol.width
+                height: 22
+                property string val: modelData
+                property bool active: root.tone === val
+                property int count: (root.facets.tone[val]) || 0
+                activeFocusOnTab: true
+                Rectangle {
+                  anchors.fill: parent
+                  radius: 4
+                  color: toneHover.containsMouse
+                    ? (active ? Style.selectedFill : Style.hoverFill)
+                    : (active ? Style.selectedFill : "transparent")
+                }
+                Rectangle {
+                  visible: val === "dark"
+                  width: 8
+                  height: 8
+                  radius: 4
+                  color: "#3b4261"
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.left: parent.left
+                  anchors.leftMargin: 7
+                }
+                Rectangle {
+                  visible: val === "light"
+                  width: 8
+                  height: 8
+                  radius: 4
+                  color: "#d6dbef"
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.left: parent.left
+                  anchors.leftMargin: 7
+                }
+                Text {
+                  text: val
+                  color: active ? root.fg : root.dim
+                  font.family: root.mono
+                  font.pointSize: Style.font.caption
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.left: parent.left
+                  anchors.leftMargin: 20
+                }
+                Text {
+                  text: String(count)
+                  color: root.faint
+                  font.family: root.mono
+                  font.pointSize: Style.font.caption
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.right: parent.right
+                  anchors.rightMargin: 7
+                }
+                MouseArea {
+                  id: toneHover
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.toggleFacet("tone", val)
+                }
+                Keys.onReturnPressed: root.toggleFacet("tone", val)
+                Keys.onSpacePressed: root.toggleFacet("tone", val)
+                Accessible.role: Accessible.Button
+                Accessible.name: "tone " + val
+                Accessible.checked: active
+                Accessible.onPressAction: root.toggleFacet("tone", val)
+              }
+            }
+
+            Text {
+              text: "COLOR"
+              color: root.faint
+              font.family: root.mono
+              font.pointSize: Style.font.caption
+              font.bold: true
+            }
+            Repeater {
+              model: Model.COLOR_ORDER
+              delegate: Item {
+                id: colorRow
+                width: filterCol.width
+                height: 22
+                property string val: modelData
+                property bool active: root.color === val
+                property int count: (root.facets.color[val]) || 0
+                activeFocusOnTab: true
+                Rectangle {
+                  anchors.fill: parent
+                  radius: 4
+                  color: colorHover.containsMouse
+                    ? (active ? Style.selectedFill : Style.hoverFill)
+                    : (active ? Style.selectedFill : "transparent")
+                }
+                Rectangle {
+                  width: 8
+                  height: 8
+                  radius: 4
+                  color: {
+                    if (val === "monochrome") return "#9aa0ab"
+                    if (val === "red") return "#e74c5b"
+                    if (val === "orange") return "#f5994f"
+                    if (val === "yellow") return "#f0d869"
+                    if (val === "green") return "#7bbf6f"
+                    if (val === "cyan") return "#5ec3d0"
+                    if (val === "blue") return "#6d8fee"
+                    if (val === "purple") return "#a87cd9"
+                    if (val === "pink") return "#e88abf"
+                    return val
+                  }
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.left: parent.left
+                  anchors.leftMargin: 7
+                }
+                Text {
+                  text: val
+                  color: active ? root.fg : root.dim
+                  font.family: root.mono
+                  font.pointSize: Style.font.caption
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.left: parent.left
+                  anchors.leftMargin: 20
+                  elide: Text.ElideRight
+                  width: filterCol.width - 66
+                }
+                Text {
+                  text: String(count)
+                  color: root.faint
+                  font.family: root.mono
+                  font.pointSize: Style.font.caption
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.right: parent.right
+                  anchors.rightMargin: 7
+                  width: 30
+                  horizontalAlignment: Text.AlignRight
+                }
+                MouseArea {
+                  id: colorHover
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.toggleFacet("color", val)
+                }
+                Keys.onReturnPressed: root.toggleFacet("color", val)
+                Keys.onSpacePressed: root.toggleFacet("color", val)
+                Accessible.role: Accessible.Button
+                Accessible.name: "color " + val
+                Accessible.checked: active
+                Accessible.onPressAction: root.toggleFacet("color", val)
+              }
+            }
+
+            Text {
+              text: "RESOLUTION"
+              color: root.faint
+              font.family: root.mono
+              font.pointSize: Style.font.caption
+              font.bold: true
+            }
+            Repeater {
+              model: Model.RES_TIERS
+              delegate: Item {
+                id: resRow
+                width: filterCol.width
+                height: 22
+                property string val: modelData
+                property bool minActive: root.resMin === val
+                property bool maxActive: root.resMax === val
+                property int minCount: (root.facets.resMin[val]) || 0
+                property int maxCount: (root.facets.resMax[val]) || 0
+                Text {
+                  text: val
+                  color: (minActive || maxActive) ? root.fg : root.dim
+                  font.family: root.mono
+                  font.pointSize: Style.font.caption
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.left: parent.left
+                  anchors.leftMargin: 7
+                }
+                Row {
+                  anchors.right: parent.right
+                  anchors.rightMargin: 4
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: 4
+                  Item {
+                    width: 42
+                    height: 22
+                    activeFocusOnTab: true
+                    Row {
+                      anchors.centerIn: parent
+                      spacing: 2
+                      Text {
+                        text: "\u2265"
+                        color: minActive ? root.fg : root.faint
+                        font.family: root.mono
+                        font.pointSize: Style.font.caption
+                      }
+                      Text {
+                        text: Model.formatCount(minCount)
+                        color: root.faint
+                        font.family: root.mono
+                        font.pointSize: Style.font.caption
+                      }
+                    }
+                    MouseArea {
+                      anchors.fill: parent
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: root.toggleFacet("res-min", resRow.val)
+                    }
+                    Keys.onReturnPressed: root.toggleFacet("res-min", resRow.val)
+                    Keys.onSpacePressed: root.toggleFacet("res-min", resRow.val)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "at least " + val + ", " + minCount + " results"
+                    Accessible.checked: minActive
+                    Accessible.onPressAction: root.toggleFacet("res-min", resRow.val)
+                  }
+                  Item {
+                    width: 42
+                    height: 22
+                    activeFocusOnTab: true
+                    Row {
+                      anchors.centerIn: parent
+                      spacing: 2
+                      Text {
+                        text: "\u2264"
+                        color: maxActive ? root.fg : root.faint
+                        font.family: root.mono
+                        font.pointSize: Style.font.caption
+                      }
+                      Text {
+                        text: Model.formatCount(maxCount)
+                        color: root.faint
+                        font.family: root.mono
+                        font.pointSize: Style.font.caption
+                      }
+                    }
+                    MouseArea {
+                      anchors.fill: parent
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: root.toggleFacet("res-max", resRow.val)
+                    }
+                    Keys.onReturnPressed: root.toggleFacet("res-max", resRow.val)
+                    Keys.onSpacePressed: root.toggleFacet("res-max", resRow.val)
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "at most " + val + ", " + maxCount + " results"
+                    Accessible.checked: maxActive
+                    Accessible.onPressAction: root.toggleFacet("res-max", resRow.val)
+                  }
+                }
+              }
+            }
+          }
+
+          // ----------------------- wallpaper grid -------------------------
+          Item {
+            id: gridArea
+            anchors.left: filterCol.right
+            anchors.leftMargin: Style.spacing.lg
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+
+            Text {
+              visible: root.filtered.length === 0
+              anchors.centerIn: parent
+              text: "no wallpapers match"
+              color: root.dim
+              font.family: root.mono
+              font.pointSize: Style.font.body
+            }
+
+            GridView {
+              id: gridView
+              anchors.fill: parent
+              anchors.margins: 1
+              model: root.filtered
+              focus: false
+              clip: true
+              boundsBehavior: Flickable.StopAtBounds
+              interactive: true
+              currentIndex: root.cursorIdx
+              highlight: CursorSurface {
+                hasCursor: true
+                current: false
+              }
+              property real cw: Math.max(1,
+                (width - (root.gridCols - 1) * Style.spacing.md) / root.gridCols)
+              property real ch: cw * 9 / 16 + Style.space(26)
+              cellWidth: cw
+              cellHeight: ch
+              delegate: Item {
+                id: card
+                width: gridView.cellWidth
+                height: gridView.cellHeight
+                required property var modelData
+                required property int index
+                property var entry: root.db && modelData !== undefined ? root.db.entries[modelData] : null
+
+                Rectangle {
+                  anchors.fill: parent
+                  radius: 6
+                  color: Color.background
+                }
+                Image {
+                  anchors.fill: parent
+                  anchors.bottomMargin: Style.space(26)
+                  clip: true
+                  fillMode: Image.PreserveAspectCrop
+                  asynchronous: true
+                  cache: false
+                  sourceSize: Qt.size(480, 480)
+                  source: card.entry ? root.url(card.entry.thumb) : ""
+                  onSourceChanged: { if (status !== Image.Ready) opacity = 0 }
+                  onStatusChanged: { opacity = (status === Image.Ready) ? 1 : 0 }
+                }
+                Column {
+                  anchors.left: parent.left
+                  anchors.leftMargin: 5
+                  anchors.right: parent.right
+                  anchors.rightMargin: 5
+                  anchors.bottom: parent.bottom
+                  anchors.bottomMargin: 4
+                  spacing: 2
+                  Text {
+                    width: parent.width
+                    text: card.entry ? (card.entry.t || card.entry.p) : ""
+                    elide: Text.ElideRight
+                    color: root.fg
+                    font.family: root.mono
+                    font.pointSize: Style.font.caption
+                  }
+                  Row {
+                    spacing: 2
+                    Repeater {
+                      model: card.entry && card.entry.pal
+                        ? Math.min(8, card.entry.pal.length) : 0
+                      delegate: Rectangle {
+                        required property int index
+                        width: 6
+                        height: 6
+                        radius: 2
+                        color: card.entry.pal[index]
+                      }
+                    }
+                  }
+                }
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  hoverEnabled: true
+                  onEntered: {
+                    root.cursorIdx = index
+                    gridView.positionViewAtIndex(index, GridView.Contain)
+                  }
+                  onClicked: root.openDetailAt(index)
+                }
+              }
+            }
+          }
+        }
+
+        // ----------------------- status row -------------------------------
+        Row {
+          id: statusRow
+          anchors.left: parent.left
+          anchors.leftMargin: Style.spacing.md
+          anchors.right: parent.right
+          anchors.rightMargin: Style.spacing.md
+          anchors.bottom: parent.bottom
+          anchors.bottomMargin: Style.spacing.md
+          spacing: Style.spacing.sm
+
+          Rectangle {
+            width: Style.space(64)
+            height: 18
+            radius: 4
+            color: Style.hoverFill
+            anchors.verticalCenter: parent.verticalCenter
+            Text {
+              anchors.centerIn: parent
+              text: root.modeLabel
+              color: root.dim
+              font.family: root.mono
+              font.pointSize: Style.font.caption
+            }
+          }
+          Text {
+            visible: root.applyPhase !== 0 && root.detailPath === ""
+            text: root.applyMsg
+            textFormat: Text.PlainText
+            elide: Text.ElideRight
+            width: Math.max(0, statusRow.width - Style.space(80))
+            color: root.applyPhase === 3 ? root.okC : (root.applyPhase === 4 ? root.errC : root.faint)
+            font.family: root.mono
+            font.pointSize: Style.font.caption
+            anchors.verticalCenter: parent.verticalCenter
+          }
+          Repeater {
+            model: root.applyPhase === 0 ? root.crumbs : []
+            delegate: Rectangle {
+              width: crumbText.implicitWidth + 26
+              height: 18
+              radius: 9
+              color: Style.hoverFill
+              property var crumb: modelData
+              Text {
+                id: crumbText
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.leftMargin: 8
+                text: crumb.label
+                color: root.dim
+                font.family: root.mono
+                font.pointSize: Style.font.caption
+              }
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.right: parent.right
+                anchors.rightMargin: 8
+                text: "\u00d7"
+                color: root.faint
+                font.pointSize: Style.font.caption
+              }
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.clearCrumb(crumb.key)
+              }
+            }
+          }
+          Item { width: root.applyPhase === 0 && root.crumbs.length === 0 ? 8 : 0 }
+          Text {
+            visible: root.applyPhase === 0 && root.crumbs.length === 0
+            text: "arrows \u00b7 enter \u00b7 / \u00b7 x \u00b7 r"
+            color: root.faint
+            font.family: root.mono
+            font.pointSize: Style.font.caption
+            anchors.verticalCenter: parent.verticalCenter
+            elide: Text.ElideRight
+            width: Math.max(0, Math.min(Style.space(160), statusRow.width - 260))
+          }
+          Item { width: 6 }
+          Text {
+            text: "bjarneo · MIT"
+            color: Qt.alpha(root.faint, 0.6)
+            font.family: root.mono
+            font.pointSize: Style.font.caption
+            anchors.verticalCenter: parent.verticalCenter
+            visible: root.applyPhase === 0 && statusRow.width > Style.space(580)
+          }
+        }
+      }
+
+      // ============================ loading / error ========================
+      Item {
+        id: stateOverlay
+        anchors.fill: parent
+        visible: root.phase !== 1
+        Column {
+          anchors.centerIn: parent
+          spacing: Style.spacing.md
+          Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: root.phase === 0 ? "LOADING INDEX" : "INDEX UNAVAILABLE"
+            color: root.dim
+            font.family: root.mono
+            font.bold: true
+            font.pointSize: Style.font.body
+          }
+          Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: Style.space(420)
+            wrapMode: Text.WordWrap
+            horizontalAlignment: Text.AlignHCenter
+            text: root.phaseMsg
+              || (root.phase === 0
+                ? "first run downloads the 35 MB wallpaper index (once, then cached for 24h)"
+                : "")
+            color: root.faint
+            font.family: root.mono
+            font.pointSize: Style.font.caption
+          }
+          Item {
+            width: Style.space(120)
+            height: Style.space(28)
+            anchors.horizontalCenter: parent.horizontalCenter
+            visible: root.phase === 2
+            Rectangle {
+              anchors.fill: parent
+              radius: 6
+              color: Style.hoverFill
+            }
+            Text {
+              anchors.centerIn: parent
+              text: "RETRY"
+              color: root.fg
+              font.family: root.mono
+              font.pointSize: Style.font.caption
+              font.bold: true
+            }
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.startLoad(true)
+            }
+          }
+        }
+      }
+
+      // ============================ detail / apply =========================
+      Item {
+        id: detail
+        anchors.fill: parent
+        visible: root.detailPath !== ""
+        z: 10
+        property var entry: root.detailIdx >= 0 ? root.entryAt(root.detailIdx) : null
+
+        Rectangle {
+          anchors.fill: parent
+          color: Color.popups.background
+        }
+
+        Column {
+          id: detailCol
+          anchors.fill: parent
+          anchors.margins: Style.spacing.lg
+          spacing: Style.spacing.md
+
+          Row {
+            id: detailHeader
+            width: parent.width
+            spacing: Style.spacing.sm
+            Item {
+              width: 26
+              height: 22
+              Text {
+                anchors.centerIn: parent
+                text: "\u2190"
+                color: root.dim
+                font.family: root.mono
+                font.pointSize: Style.font.body
+              }
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.closeDetail()
+              }
+            }
+            Text {
+              width: detailCol.width - Style.space(260)
+              text: detail.entry ? (detail.entry.t || detail.entry.p) : ""
+              textFormat: Text.PlainText
+              elide: Text.ElideRight
+              color: root.fg
+              font.family: root.mono
+              font.pointSize: Style.font.subtitle
+              font.bold: true
+              anchors.verticalCenter: parent.verticalCenter
+            }
+            Text {
+              text: detail.entry
+                ? (detail.entry.tone + " \u00b7 " + detail.entry.color
+                   + " \u00b7 " + detail.entry.w + "\u00d7" + detail.entry.h)
+                : ""
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.mono
+              font.pointSize: Style.font.caption
+              anchors.verticalCenter: parent.verticalCenter
+            }
+          }
+
+          Row {
+            width: parent.width
+            height: Math.max(Style.space(120),
+              detailCol.height
+              - detailHeader.implicitHeight
+              - variantList.implicitHeight
+              - detailStatus.implicitHeight
+              - Style.spacing.md * 3)
+            spacing: Style.spacing.lg
+
+            Item {
+              width: Math.floor(parent.width * 0.5)
+              height: parent.height
+              Rectangle {
+                anchors.fill: parent
+                radius: 8
+                color: Color.background
+                clip: true
+                Image {
+                  anchors.fill: parent
+                  fillMode: Image.PreserveAspectCrop
+                  asynchronous: true
+                  cache: false
+                  sourceSize: Qt.size(1920, 1920)
+                  source: detail.entry ? root.url(detail.entry.med) : ""
+                  onSourceChanged: { if (status !== Image.Ready) opacity = 0 }
+                  onStatusChanged: { opacity = (status === Image.Ready) ? 1 : 0 }
+                }
+              }
+            }
+            Column {
+              width: parent.width - Math.floor(parent.width * 0.5) - parent.spacing
+              height: parent.height
+              spacing: Style.spacing.md
+
+              Text {
+                text: "PALETTE"
+                color: root.faint
+                font.family: root.mono
+                font.pointSize: Style.font.caption
+                font.bold: true
+              }
+              Row {
+                spacing: 3
+                Repeater {
+                  model: detail.entry && detail.entry.pal
+                    ? Math.min(12, detail.entry.pal.length) : 0
+                  delegate: Rectangle {
+                    width: 12
+                    height: 12
+                    radius: 3
+                    color: detail.entry.pal[index]
+                  }
+                }
+              }
+              Text {
+                text: "TAGS"
+                color: root.faint
+                font.family: root.mono
+                font.pointSize: Style.font.caption
+                font.bold: true
+              }
+              Flow {
+                width: parent.width
+                spacing: 4
+                Repeater {
+                  model: detail.entry && detail.entry.tags ? detail.entry.tags : []
+                  delegate: Rectangle {
+                    width: tagText.implicitWidth + 14
+                    height: 18
+                    radius: 9
+                    color: Style.hoverFill
+                    Text {
+                      id: tagText
+                      anchors.verticalCenter: parent.verticalCenter
+                      anchors.left: parent.left
+                      anchors.leftMargin: 7
+                      text: modelData
+                      textFormat: Text.PlainText
+                      color: root.dim
+                      font.family: root.mono
+                      font.pointSize: Style.font.caption
+                    }
+                  }
+                }
+              }
+              Item { width: 1; height: 1 }
+            }
+          }
+
+          Column {
+            id: variantList
+            width: parent.width
+            spacing: 2
+            Text {
+              text: "ONE-CLICK APPLY"
+              color: root.faint
+              font.family: root.mono
+              font.pointSize: Style.font.caption
+              font.bold: true
+            }
+            Repeater {
+              model: root.detailVariants
+              delegate: Item {
+                id: vrow
+                width: variantList.width
+                height: Style.space(30)
+                property var v: modelData
+                property bool sel: index === root.detailVariant
+                property bool working:
+                  (root.applyPhase === 1 || root.applyPhase === 2)
+                  && root.applySlug === v.n
+                property bool isActive:
+                  root.currentThemeSlug() !== ""
+                  && root.currentThemeSlug() === String(v.n || "").toLowerCase()
+                Rectangle {
+                  anchors.fill: parent
+                  radius: 6
+                  color: sel ? Style.selectedFill : "transparent"
+                }
+                Rectangle {
+                  width: 10
+                  height: 10
+                  radius: 5
+                  color: v.hue
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.left: parent.left
+                  anchors.leftMargin: 10
+                }
+                Text {
+                  width: Style.space(64)
+                  text: v.label
+                  color: sel ? root.fg : root.dim
+                  font.family: root.mono
+                  font.pointSize: Style.font.body
+                  font.bold: sel
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.left: parent.left
+                  anchors.leftMargin: 28
+                }
+                Row {
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.left: parent.left
+                  anchors.leftMargin: Style.space(100)
+                  spacing: 0
+                  Repeater {
+                    model: v.c ? v.c.length : 0
+                    delegate: Rectangle {
+                      width: Style.space(10)
+                      height: Style.space(14)
+                      color: v.c[index]
+                    }
+                  }
+                }
+                Text {
+                  visible: root.applyPhase === 3 && root.applySlug === v.n
+                  text: "\u2713"
+                  color: root.okC
+                  font.pointSize: Style.font.body
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.right: applyBtn.left
+                  anchors.rightMargin: 6
+                }
+                Item {
+                  id: applyBtn
+                  width: Style.space(76)
+                  height: Style.space(22)
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.right: parent.right
+                  anchors.rightMargin: 8
+                  Rectangle {
+                    anchors.fill: parent
+                    radius: 4
+                    color: vrow.working
+                      ? Style.hoverFill
+                      : (vrow.isActive ? "transparent" : Style.selectedFill)
+                    border.color: vrow.isActive ? root.okC : "transparent"
+                    border.width: vrow.isActive ? 1 : 0
+                  }
+                  Text {
+                    anchors.centerIn: parent
+                    text: vrow.working ? "apply\u2026" : (vrow.isActive ? "active" : "Apply")
+                    color: vrow.working ? root.faint
+                      : (vrow.isActive ? root.okC : root.fg)
+                    font.family: root.mono
+                    font.pointSize: Style.font.caption
+                    font.bold: !vrow.working
+                  }
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    hoverEnabled: true
+                    onClicked: {
+                      root.detailVariant = index
+                      root.applySelected()
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          Text {
+            id: detailStatus
+            width: parent.width
+            text: root.applyPhase === 0
+              ? "\u2190 \u2192 wallpaper \u00b7 \u2191 \u2193 variant \u00b7 enter apply \u00b7 esc back"
+              : root.applyMsg
+            textFormat: Text.PlainText
+            color: root.applyPhase === 3 ? root.okC
+              : (root.applyPhase === 4 ? root.errC : root.faint)
+            font.family: root.mono
+            font.pointSize: Style.font.caption
+          }
+        }
+      }
+    }
+  }
+}

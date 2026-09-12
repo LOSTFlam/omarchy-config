@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "alexzeitler.ytdlp",
+  "name": "yt-dlp",
+  "version": "0.2.1",
+  "author": "Alexander Zeitler",
+  "license": "MIT",
+  "description": "A download queue for yt-dlp, one click from the bar.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "omarchy/Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "yt-dlp",
+    "description": "Paste a link, pick video or audio, and watch the queue run.",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "mode": "video",
+      "quality": "best",
+      "dest": ""
+    }
+  }
+}

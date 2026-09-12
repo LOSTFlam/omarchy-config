@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "jampick.system-update",
+  "name": "Update Review",
+  "version": "1.3.0",
+  "author": "jampick",
+  "license": "MIT",
+  "description": "Shows exactly which packages an update would change, and what it will ask for afterwards, before you start it.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "SystemUpdate.qml"
+  },
+  "barWidget": {
+    "displayName": "Update Review",
+    "description": "Appears when Omarchy is behind. Left click reviews every pending package with versions, download size, and whether a reboot follows. Right click updates straight away.",
+    "category": "System",
+    "aliases": [
+      "update",
+      "updates"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "center",
+    "defaults": {
+      "checkIntervalHours": 6,
+      "staleAfterMinutes": 10
+    },
+    "schema": [
+      {
+        "key": "checkIntervalHours",
+        "type": "integer",
+        "label": "Check interval (hours)",
+        "min": 1,
+        "max": 168,
+        "step": 1,
+        "defaultValue": 6,
+        "description": "How often to ask whether Omarchy is behind. The pending-package detail is read from the same sync, so a shorter interval costs no extra network."
+      },
+      {
+        "key": "staleAfterMinutes",
+        "type": "integer",
+        "label": "Re-read on open after (minutes)",
+        "min": 1,
+        "max": 1440,
+        "step": 1,
+        "defaultValue": 10,
+        "description": "Opening the panel shows the cached list immediately. It only re-reads the mirrors if the cache is older than this."
+      }
+    ]
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.system-update"
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "id": "kairos.globe-guesser",
+  "name": "Globe Guesser",
+  "version": "1.1.0",
+  "author": "kairos",
+  "license": "MIT",
+  "description": "Guess where in the world a photo was taken. Five rounds, an OpenStreetMap map and a spinnable globe to click, and photographs of real places from Wikipedia. Falls back to a bundled offline map when there is no network.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Globe Guesser",
+    "description": "Guess where a photo was taken, on an OpenStreetMap map or a globe",
+    "category": "Fun",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "difficulty": "normal",
+      "roundsPerGame": 5,
+      "defaultView": "map",
+      "searchRadiusKm": 10,
+      "cartoApiKey": ""
+    },
+    "schema": [
+      {
+        "key": "difficulty",
+        "type": "enum",
+        "label": "Difficulty",
+        "options": [
+          "easy",
+          "normal",
+          "hard"
+        ],
+        "defaultValue": "normal",
+        "description": "Which cities a round can be drawn from. Easy uses the 150 largest in the world, normal the largest 500, hard all 1000 - including places you have very likely never heard of."
+      },
+      {
+        "key": "roundsPerGame",
+        "type": "integer",
+        "label": "Rounds per game",
+        "min": 3,
+        "max": 10,
+        "step": 1,
+        "defaultValue": 5,
+        "description": "How many photos make up one game. Five is the classic run, worth 25,000 points."
+      },
+      {
+        "key": "defaultView",
+        "type": "enum",
+        "label": "Starting view",
+        "options": [
+          "map",
+          "globe"
+        ],
+        "defaultValue": "map",
+        "description": "Whether a round opens on the flat world map or the globe. You can switch at any time during a round; this only sets which one you start on."
+      },
+      {
+        "key": "searchRadiusKm",
+        "type": "integer",
+        "label": "Photo radius (km)",
+        "min": 1,
+        "max": 10,
+        "step": 1,
+        "defaultValue": 10,
+        "description": "How far from a city centre a place may be. 10 km is both the default and MediaWiki's hard ceiling for a geosearch, so this only ever narrows the search. Smaller keeps photos in the city centre; it also finds fewer of them."
+      },
+      {
+        "key": "cartoApiKey",
+        "type": "string",
+        "label": "CARTO basemap key (optional)",
+        "defaultValue": "",
+        "description": "Optional. Leave empty and the map is drawn from bundled offline outlines, which needs no key and no account. CARTO began watermarking unauthenticated map tiles in August 2026, so detailed street-level tiles now need a key of your own: get a free one at carto.com/basemaps/apikey (5 million tiles a month). The key is used only to fetch map tiles."
+      }
+    ]
+  }
+}

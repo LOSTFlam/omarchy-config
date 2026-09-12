@@ -1,0 +1,24 @@
+/* omacord layer: compact
+   Tightens Discord's generous default spacing toward the density of a
+   tiling desktop, without going as far as Discord's own compact mode. */
+
+[class*="scroller_"] [class*="messageListItem_"] {
+  margin-top: 2px !important;
+}
+
+[class*="channel_"] [class*="link_"] {
+  height: 30px !important;
+}
+
+[class*="listItem_"] {
+  margin-top: 4px !important;
+}
+
+[class*="container_"][class*="panels_"] {
+  padding: 4px !important;
+}
+
+[class*="title_"][class*="container_"] {
+  height: 42px !important;
+  min-height: 42px !important;
+}

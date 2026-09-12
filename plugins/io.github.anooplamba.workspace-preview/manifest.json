@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.anooplamba.workspace-preview",
+  "name": "Workspace Peek",
+  "version": "1.0.1",
+  "author": "Anoop Lamba",
+  "license": "MIT",
+  "description": "Themed static workspace snapshots on hover while preserving immediate workspace switching.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "WorkspacePreview.qml"
+  },
+  "barWidget": {
+    "displayName": "Workspace Peek",
+    "category": "Widgets",
+    "allowMultiple": false,
+    "defaultSection": "left"
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.workspaces"
+  }
+}

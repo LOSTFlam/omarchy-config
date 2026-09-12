@@ -1,0 +1,3617 @@
+#!/usr/bin/env bash
+
+# Okomart catalog and action helper.
+#
+# The QML frontend deliberately delegates Git/network work and plugin mutations
+# to this process. Every public command writes exactly one JSON value to stdout.
+
+set -uo pipefail
+
+export GIT_TERMINAL_PROMPT=0
+export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -oBatchMode=yes}"
+export LC_ALL=C
+
+OKOMART_ID="b.okomart"
+OFFICIAL_CATALOG_URL="https://github.com/brianblakely/omarchy-plugins.git"
+MARKETPLACE_REGISTRY_URL="${OKOMART_MARKETPLACE_REGISTRY_URL:-https://raw.githubusercontent.com/HANCORE-linux/omarchy-plugin-marketplace/refs/heads/main/registry.json}"
+MARKETPLACE_REGISTRY_MAXIMUM_BYTES=$((16 * 1024 * 1024))
+MANIFEST_MAXIMUM_BYTES=$((512 * 1024))
+SCREENSHOT_MAXIMUM_BYTES=$((32 * 1024 * 1024))
+GITHUB_MANIFEST_WORKERS="${OKOMART_GITHUB_MANIFEST_WORKERS:-16}"
+GENERIC_MANIFEST_WORKERS="${OKOMART_GENERIC_MANIFEST_WORKERS:-2}"
+GITHUB_TIMESTAMP_WORKERS=8
+[[ $GITHUB_MANIFEST_WORKERS =~ ^[1-9][0-9]*$ &&
+  $GITHUB_MANIFEST_WORKERS -le 64 ]] || GITHUB_MANIFEST_WORKERS=16
+[[ $GENERIC_MANIFEST_WORKERS =~ ^[1-9][0-9]*$ &&
+  $GENERIC_MANIFEST_WORKERS -le 8 ]] || GENERIC_MANIFEST_WORKERS=2
+REFRESH_DEADLINE_SECONDS="${OKOMART_REFRESH_DEADLINE_SECONDS:-90}"
+[[ $REFRESH_DEADLINE_SECONDS =~ ^[1-9][0-9]*$ ]] || REFRESH_DEADLINE_SECONDS=90
+GITHUB_RAW_BASE="${OKOMART_GITHUB_RAW_BASE:-https://raw.githubusercontent.com}"
+GITHUB_API_BASE="${OKOMART_GITHUB_API_BASE:-https://api.github.com}"
+SCRIPT_PATH="$(realpath -m -- "${BASH_SOURCE[0]}")"
+
+json_error() {
+  jq -cn --arg error "$1" '{ok:false,error:$error}'
+}
+
+require_tool() {
+  command -v "$1" >/dev/null 2>&1 || {
+    json_error "'$1' is required"
+    exit 1
+  }
+}
+
+valid_plugin_id() {
+  [[ ${1:-} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && $1 != *..* ]]
+}
+
+utc_now() {
+  date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+init_paths() {
+  local home="${HOME:-}"
+  [[ -n $home ]] || {
+    json_error "HOME is not set"
+    exit 1
+  }
+
+  local cache_base="${XDG_CACHE_HOME:-$home/.cache}"
+  local state_base="${XDG_STATE_HOME:-$home/.local/state}"
+  CACHE_ROOT="$(realpath -m -- "$cache_base/okomart")"
+  STATE_ROOT="$(realpath -m -- "$state_base/okomart")"
+  SHELL_CONFIG="$(realpath -m -- "$home/.config/omarchy/shell.json")"
+  PLUGINS_DIR="$(realpath -m -- "$home/.config/omarchy/plugins")"
+  CATALOG_FILE="$CACHE_ROOT/catalog.json"
+  LEGACY_CATALOG_DIR="$CACHE_ROOT/catalog"
+  LEGACY_REGISTRY_MIRROR="$CACHE_ROOT/registry.git"
+  LEGACY_REPOSITORY_CACHE="$CACHE_ROOT/repositories"
+  CATALOG_LOCK="$STATE_ROOT/catalog.lock"
+  LEGACY_CATALOG_STATE="$STATE_ROOT/catalog.json"
+  LEGACY_SNAPSHOT_STATE="$STATE_ROOT/snapshot.json"
+  ACTION_STATE="$STATE_ROOT/action.json"
+  ACTION_LOCK="$STATE_ROOT/action.lock"
+  ACTION_LOG="$STATE_ROOT/action.log"
+  local runtime_base
+  if [[ -n ${XDG_RUNTIME_DIR:-} ]]; then
+    runtime_base="$(realpath -m -- "$XDG_RUNTIME_DIR")"
+  else
+    runtime_base="$STATE_ROOT/runtime"
+  fi
+  MEDIA_ROOT="$(realpath -m -- "$runtime_base/okomart")"
+  WORK_ROOT="$(realpath -m -- "$runtime_base/okomart-work")"
+
+  [[ $CACHE_ROOT == /* && $CACHE_ROOT != "/" &&
+    $(basename -- "$CACHE_ROOT") == "okomart" ]] || {
+    json_error "refusing unsafe cache path"
+    exit 1
+  }
+  [[ $STATE_ROOT == /* && $STATE_ROOT != "/" ]] || {
+    json_error "refusing unsafe state path"
+    exit 1
+  }
+  [[ $MEDIA_ROOT == /* && $MEDIA_ROOT != "/" &&
+    $(basename -- "$MEDIA_ROOT") == okomart ]] || {
+    json_error "refusing unsafe Okomart runtime path"
+    exit 1
+  }
+  [[ $WORK_ROOT == /* && $WORK_ROOT != "/" &&
+    $(basename -- "$WORK_ROOT") == okomart-work ]] || {
+    json_error "refusing unsafe Okomart work path"
+    exit 1
+  }
+  if ! mkdir -p -- "$CACHE_ROOT" "$STATE_ROOT"; then
+    json_error "Could not create Okomart cache/state directories"
+    exit 1
+  fi
+}
+
+atomic_write() {
+  local target="$1"
+  local content="$2"
+  local parent tmp
+  parent="$(dirname -- "$target")"
+  mkdir -p -- "$parent"
+  tmp="$parent/.$(basename -- "$target").tmp.$$.$RANDOM"
+  umask 077
+  printf '%s\n' "$content" >"$tmp" || return 1
+  # -T keeps a malicious or accidental directory/symlink destination from
+  # turning this atomic replacement into a write inside another directory.
+  if ! mv -fT -- "$tmp" "$target" 2>/dev/null; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+}
+
+read_window_mode() {
+  local mode=""
+  if [[ -f $SHELL_CONFIG ]]; then
+    mode="$(jq -er --arg id "$OKOMART_ID" '
+      select(type == "object" and .version == 1)
+      | (.plugins // [])
+      | select(type == "array")
+      | [.[] | select(type == "object" and (.id // "") == $id)][0]
+      | select(type == "object")
+      | .windowMode
+      | select(. == "floating" or . == "tiled")
+    ' "$SHELL_CONFIG" 2>/dev/null || true)"
+  fi
+  if [[ $mode == floating || $mode == tiled ]]; then
+    printf '%s\n' "$mode"
+  else
+    printf 'floating\n'
+  fi
+}
+
+safe_remove_legacy_path() {
+  local target="$1" expected_parent="$2" expected_name="$3"
+  local normalized
+  normalized="$(realpath -ms -- "$target")"
+  [[ $(dirname -- "$normalized") == "$expected_parent" &&
+    $(basename -- "$normalized") == "$expected_name" ]] || return 1
+  if [[ -L $target || -f $target ]]; then
+    rm -f -- "$target"
+  elif [[ -d $target ]]; then
+    rm -rf --one-file-system -- "$target"
+  elif [[ -e $target ]]; then
+    return 1
+  fi
+}
+
+cleanup_legacy_catalog_data() {
+  safe_remove_legacy_path "$LEGACY_CATALOG_DIR" "$CACHE_ROOT" catalog || return 1
+  safe_remove_legacy_path "$LEGACY_REGISTRY_MIRROR" "$CACHE_ROOT" registry.git || return 1
+  safe_remove_legacy_path "$LEGACY_REPOSITORY_CACHE" "$CACHE_ROOT" repositories || return 1
+  safe_remove_legacy_path "$LEGACY_CATALOG_STATE" "$STATE_ROOT" catalog.json || return 1
+  safe_remove_legacy_path "$LEGACY_SNAPSHOT_STATE" "$STATE_ROOT" snapshot.json || return 1
+}
+
+cleanup_cache_extras() (
+  local entry name normalized
+  shopt -s dotglob nullglob
+  for entry in "$CACHE_ROOT"/*; do
+    name="${entry##*/}"
+    if [[ $name == catalog.json && -f $entry && ! -L $entry ]]; then
+      continue
+    fi
+    normalized="$(realpath -ms -- "$entry")" || return 1
+    [[ $(dirname -- "$normalized") == "$CACHE_ROOT" &&
+      $(basename -- "$normalized") == "$name" ]] || return 1
+    if [[ -L $entry || ! -d $entry ]]; then
+      rm -f -- "$entry" || return 1
+    else
+      rm -rf --one-file-system -- "$entry" || return 1
+    fi
+  done
+)
+
+startup_cache_cleanup() {
+  [[ ! -L $CATALOG_LOCK && ! -d $CATALOG_LOCK ]] || return 1
+  exec 9>>"$CATALOG_LOCK" || return 1
+  # A writer can briefly own this lock while atomically replacing catalog.json.
+  # Keep startup local and immediate instead of waiting on network-bound work.
+  flock -n 9 || return 0
+  cleanup_cache_extras
+}
+
+ensure_work_root() {
+  [[ ! -L $WORK_ROOT && ( ! -e $WORK_ROOT || -d $WORK_ROOT ) ]] || return 1
+  mkdir -p -m 700 -- "$WORK_ROOT" && chmod 700 -- "$WORK_ROOT"
+}
+
+catalog_default() {
+  jq -cn '{schemaVersion:1,active:null,pending:null}'
+}
+
+read_catalog() {
+  if [[ -f $CATALOG_FILE && ! -L $CATALOG_FILE ]] && jq -e '
+      type == "object" and .schemaVersion == 1
+      and (.active == null or (
+        (.active.generation | type == "string" and length > 0)
+        and (.active.entries | type == "array")
+        and (.active.errors | type == "array")
+      ))
+      and (.pending == null or (
+        (.pending.generation | type == "string" and length > 0)
+        and (.pending.ready | type == "boolean")
+        and (.pending.entries | type == "array")
+        and (.pending.errors | type == "array")
+      ))
+    ' "$CATALOG_FILE" >/dev/null 2>&1; then
+    cat -- "$CATALOG_FILE"
+  else
+    catalog_default
+  fi
+}
+
+write_catalog() {
+  atomic_write "$CATALOG_FILE" "$1"
+}
+
+valid_worker_snapshot_path() {
+  local candidate="${1:-}" normalized
+  [[ -n $candidate ]] || return 1
+  normalized="$(realpath -m -- "$candidate")"
+  [[ $candidate == "$normalized" ]] || return 1
+  [[ $(dirname -- "$normalized") == "$STATE_ROOT/worker" ]] || return 1
+  [[ $(basename -- "$normalized") =~ ^snapshot-[A-Za-z0-9._-]+\.json$ ]]
+}
+
+git_with_timeout() {
+  timeout 20s git "$@"
+}
+
+version_is_higher() {
+  local available="${1:-}"
+  local installed="${2:-}"
+  [[ -n $available && -n $installed && $available != "$installed" ]] || return 1
+  [[ $available != *$'\n'* && $available != *$'\r'*
+    && $installed != *$'\n'* && $installed != *$'\r'* ]] || return 1
+
+  # Manifest versions are release metadata, so repository movement alone is
+  # not an update. GNU version ordering handles numeric runs without integer
+  # overflow; checking the reverse ordering makes the comparison strict.
+  printf '%s\n%s\n' "$installed" "$available" | sort -V -C || return 1
+  if printf '%s\n%s\n' "$available" "$installed" | sort -V -C; then
+    return 1
+  fi
+}
+
+# SemVer 2.0 precedence for fallback catalog timestamp selection. Invalid
+# versions are deliberately incomparable: they remain valid display metadata,
+# but cannot advance a previously selected manifest timestamp.
+semver_is_higher() {
+  local available="${1:-}" previous="${2:-}"
+  jq -en --arg a "$available" --arg b "$previous" '
+    def parsed:
+      capture("^(?<major>0|[1-9][0-9]*)\\.(?<minor>0|[1-9][0-9]*)\\.(?<patch>0|[1-9][0-9]*)(?:-(?<pre>(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$")
+      | .core = [.major, .minor, .patch]
+      | .parts = (if .pre == null then null else (.pre | split(".")) end);
+    def numcmp($x; $y):
+      (($x | sub("^0+"; "")) // "0") as $nx
+      | (($y | sub("^0+"; "")) // "0") as $ny
+      | if ($nx|length) != ($ny|length) then
+          if ($nx|length) > ($ny|length) then 1 else -1 end
+        elif $nx == $ny then 0 elif $nx > $ny then 1 else -1 end;
+    def idcmp($x; $y):
+      ($x | test("^[0-9]+$")) as $xn | ($y | test("^[0-9]+$")) as $yn
+      | if $xn and $yn then numcmp($x; $y)
+        elif $xn then -1 elif $yn then 1
+        elif $x == $y then 0 elif $x > $y then 1 else -1 end;
+    def precmp($x; $y; $i):
+      if $i >= ($x|length) and $i >= ($y|length) then 0
+      elif $i >= ($x|length) then -1
+      elif $i >= ($y|length) then 1
+      else idcmp($x[$i]; $y[$i]) as $c
+        | if $c == 0 then precmp($x; $y; $i + 1) else $c end
+      end;
+    try ($a | parsed) catch null as $pa
+    | try ($b | parsed) catch null as $pb
+    | if $pa == null or $pb == null then false
+      else ([range(0;3) | numcmp($pa.core[.]; $pb.core[.])]
+        | map(select(. != 0)) | .[0] // 0) as $core
+      | if $core != 0 then $core > 0
+        elif $pa.parts == null and $pb.parts == null then false
+        elif $pa.parts == null then true
+        elif $pb.parts == null then false
+        else precmp($pa.parts; $pb.parts; 0) > 0 end
+      end
+  ' >/dev/null
+}
+
+prepare_window_command() {
+  local side position="${1:-}" bar_size="${2:-}"
+  local monitor_output gap_output monitor_geometry gap
+  local monitor_name monitor_scale screen_width screen_height transform
+  local available_width available_height window_mode
+  local -a monitor_fields=()
+
+  require_tool hyprctl
+  (( $# == 2 )) || {
+    json_error "Usage: okomart prepare-window <bar-position> <bar-size>"
+    return 2
+  }
+  case "$position" in
+  top | bottom | left | right | none) ;;
+  *)
+    json_error "Bar position must be top, bottom, left, right, or none"
+    return 2
+    ;;
+  esac
+  [[ $bar_size =~ ^[0-9]+$ ]] && (( bar_size <= 4096 )) || {
+    json_error "Bar size must be an integer from 0 through 4096"
+    return 2
+  }
+  [[ $position != none ]] || bar_size=0
+
+  monitor_output="$(hyprctl monitors -j 2>/dev/null)" || {
+    json_error "Could not read the focused Hyprland monitor"
+    return 1
+  }
+  monitor_geometry="$(
+    jq -cer '
+        [.[] | select(.focused == true)][0] as $monitor
+        | if $monitor == null then error("no focused monitor") else
+            ($monitor.width | tonumber) as $rawWidth
+            | ($monitor.height | tonumber) as $rawHeight
+            | ($monitor.scale | tonumber) as $scale
+            | (($monitor.transform // 0) | tonumber | floor) as $transform
+            | if $rawWidth <= 0 or $rawHeight <= 0 or $scale <= 0 then
+                error("invalid focused monitor geometry")
+              else
+                (if ($transform % 2) == 1 then $rawHeight else $rawWidth end) as $physicalWidth
+                | (if ($transform % 2) == 1 then $rawWidth else $rawHeight end) as $physicalHeight
+                | {
+                    monitor: ($monitor.name | tostring),
+                    scale: $scale,
+                    transform: $transform,
+                    width: (($physicalWidth / $scale) | floor),
+                    height: (($physicalHeight / $scale) | floor)
+                  }
+              end
+          end
+    ' <<<"$monitor_output"
+  )" || {
+    json_error "Could not read the focused Hyprland monitor"
+    return 1
+  }
+  mapfile -t monitor_fields < <(
+    jq -r '.monitor, .scale, .width, .height, .transform' <<<"$monitor_geometry"
+  )
+  monitor_name="${monitor_fields[0]:-}"
+  monitor_scale="${monitor_fields[1]:-}"
+  screen_width="${monitor_fields[2]:-}"
+  screen_height="${monitor_fields[3]:-}"
+  transform="${monitor_fields[4]:-}"
+  [[ $screen_width =~ ^[0-9]+$ && $screen_height =~ ^[0-9]+$ ]] || {
+    json_error "Could not read the focused Hyprland monitor"
+    return 1
+  }
+
+  gap_output="$(hyprctl -j getoption general:gaps_out 2>/dev/null)" || {
+    json_error "Could not read the Hyprland window gap"
+    return 1
+  }
+  gap="$(
+    jq -er '
+        ([.custom, .css, .int]
+          | map(select(. != null) | tostring | select(length > 0))
+          | .[0] // "0")
+        | capture("(?<number>-?[0-9]+(?:\\.[0-9]+)?)").number
+        | tonumber
+        | if . < 0 then error("negative gap") else round end
+    ' <<<"$gap_output"
+  )" || {
+    json_error "Could not read the Hyprland window gap"
+    return 1
+  }
+
+  available_width=$screen_width
+  available_height=$screen_height
+  case "$position" in
+  left | right) available_width=$((available_width - bar_size)) ;;
+  top | bottom) available_height=$((available_height - bar_size)) ;;
+  esac
+  if (( available_width < available_height )); then
+    side=$((available_width - gap))
+  else
+    side=$((available_height - gap))
+  fi
+  (( side >= 1 && side <= 32768 )) || {
+    json_error "Focused screen does not have enough room for Okomart"
+    return 1
+  }
+  local floating_enabled=false tiled_enabled=false
+  local rule output="" status=0
+  window_mode="$(read_window_mode)"
+  if [[ $window_mode == tiled ]]; then
+    tiled_enabled=true
+  else
+    floating_enabled=true
+  fi
+
+  # Lua window-rule updates append effects to an existing named rule. Disable
+  # the legacy shared rule, then keep floating and tiled effects on independent
+  # rule handles and enable exactly one before the window maps.
+  rule="hl.window_rule({ name = \"okomart-floating-window\", enabled = false }); if b_okomart_window_rule_floating == nil or b_okomart_window_rule_floating:is_enabled() == nil then b_okomart_window_rule_floating = hl.window_rule({ name = \"okomart-window-floating\", enabled = false, match = { class = \"^org.quickshell$\", title = \"^Okomart$\" }, float = true, center = true, size = { $side, $side }, border_size = 0 }); b_okomart_window_rule_side = $side elseif b_okomart_window_rule_side ~= $side then b_okomart_window_rule_floating = hl.window_rule({ name = \"okomart-window-floating\", enabled = false, match = { class = \"^org.quickshell$\", title = \"^Okomart$\" }, center = true, size = { $side, $side }, border_size = 0 }); b_okomart_window_rule_side = $side end; if b_okomart_window_rule_tiled == nil or b_okomart_window_rule_tiled:is_enabled() == nil then b_okomart_window_rule_tiled = hl.window_rule({ name = \"okomart-window-tiled\", enabled = false, match = { class = \"^org.quickshell$\", title = \"^Okomart$\" }, tile = true, border_size = 0 }) end; b_okomart_window_rule_floating:set_enabled($floating_enabled); b_okomart_window_rule_tiled:set_enabled($tiled_enabled)"
+  output="$(hyprctl eval "$rule" 2>&1)" || status=$?
+  if (( status != 0 )) || [[ $output != "ok" ]]; then
+    json_error "Could not register the Okomart window rule"
+    return 1
+  fi
+
+  jq -cn \
+    --argjson side "$side" \
+    --arg monitor "$monitor_name" \
+    --argjson scale "$monitor_scale" \
+    --argjson screenWidth "$screen_width" \
+    --argjson screenHeight "$screen_height" \
+    --argjson gap "$gap" \
+    --arg barPosition "$position" \
+    --argjson barSize "$bar_size" \
+    --argjson transform "$transform" \
+    --arg mode "$window_mode" \
+    '{
+      ok:true,
+      prepared:true,
+      mode:$mode,
+      width:$side,
+      height:$side,
+      monitor:$monitor,
+      outputScale:$scale,
+      screen:{width:$screenWidth,height:$screenHeight,transform:$transform},
+      gap:$gap,
+      bar:{position:$barPosition,size:$barSize}
+    }'
+}
+
+apply_window_mode_command() {
+  local side="${1:-}" clients address="" window_mode action lua output="" status=0
+
+  require_tool hyprctl
+  (( $# == 1 )) || {
+    json_error "Usage: okomart apply-window-mode <window-size>"
+    return 2
+  }
+  [[ $side =~ ^[0-9]+$ ]] && (( side <= 32768 )) || {
+    json_error "Window size must be an integer from 0 through 32768"
+    return 2
+  }
+
+  # A Quickshell window can be created before its first map-time rule exists.
+  # Wait briefly for that mapped client, then enforce the persisted mode on its
+  # exact address so first use and later reopens do not depend on rule timing.
+  for (( attempt = 0; attempt < 40; attempt++ )); do
+    clients="$(hyprctl clients -j 2>/dev/null)" || clients=""
+    address="$(
+      jq -er '
+        [.[] | select(
+          (.mapped // false) == true
+          and (.class // "") == "org.quickshell"
+          and (.title // "") == "Okomart"
+        )][-1].address // empty
+      ' <<<"$clients" 2>/dev/null || true
+    )"
+    [[ -z $address ]] || break
+    sleep 0.025
+  done
+  address="${address,,}"
+  [[ $address =~ ^0x[0-9a-f]+$ ]] || {
+    json_error "Could not find the mapped Okomart window"
+    return 1
+  }
+
+  window_mode="$(read_window_mode)"
+  if [[ $window_mode == floating ]]; then
+    action=enable
+    lua="hl.dispatch(hl.dsp.window.float({ action = \"$action\", window = \"address:$address\" }))"
+    if (( side > 0 )); then
+      lua+="; hl.dispatch(hl.dsp.window.resize({ x = $side, y = $side, relative = false, window = \"address:$address\" })); hl.dispatch(hl.dsp.window.center({ window = \"address:$address\" }))"
+    fi
+  else
+    action=disable
+    lua="hl.dispatch(hl.dsp.window.float({ action = \"$action\", window = \"address:$address\" }))"
+  fi
+
+  output="$(hyprctl eval "$lua" 2>&1)" || status=$?
+  if (( status != 0 )) || [[ $output != "ok" ]]; then
+    json_error "Could not apply the Okomart window mode"
+    return 1
+  fi
+
+  jq -cn \
+    --arg mode "$window_mode" \
+    --arg address "$address" \
+    --argjson size "$side" \
+    '{ok:true,applied:true,mode:$mode,address:$address,size:$size}'
+}
+
+source_origin() {
+  local source_dir="$1"
+  plugin_owned_git_worktree "$source_dir" || return 1
+  local origin
+  origin="$(git -C "$source_dir" remote get-url origin 2>/dev/null)" ||
+    return 1
+
+  # The shell may not inherit the SSH agent that was available when a user
+  # installed Okomart from a terminal. Its catalog is public, so resolve known
+  # aliases of the official origin to the canonical HTTPS URL. Self updates
+  # still use the checkout's configured origin in self_update_json().
+  case "${origin,,}" in
+  https://github.com/brianblakely/omarchy-plugins | \
+    https://github.com/brianblakely/omarchy-plugins.git | \
+    git@github.com:brianblakely/omarchy-plugins.git | \
+    ssh://git@github.com/brianblakely/omarchy-plugins.git | \
+    ssh://git@github.com:22/brianblakely/omarchy-plugins.git | \
+    git+ssh://git@github.com/brianblakely/omarchy-plugins.git)
+    printf '%s\n' "$OFFICIAL_CATALOG_URL"
+    ;;
+  *)
+    printf '%s\n' "$origin"
+    ;;
+  esac
+}
+
+valid_registry_url() {
+  local url="${1:-}"
+  [[ $url == https://*.git &&
+    $url != *[[:space:][:cntrl:]]* &&
+    $url != *'?'* && $url != *'#'* && $url != *'\'* &&
+    $url != *'%'* ]] || return 1
+
+  local remainder authority path host port="" label
+  remainder="${url#https://}"
+  [[ $remainder == */* ]] || return 1
+  authority="${remainder%%/*}"
+  path="/${remainder#*/}"
+  [[ -n $authority && $authority != *@* && $path != "/" ]] || return 1
+  [[ $path =~ ^/[-A-Za-z0-9._~/]+\.git$ ]] || return 1
+
+  if [[ $authority =~ ^([a-z0-9]([a-z0-9.-]*[a-z0-9])?)(:([1-9][0-9]{0,4}))?$ ]]; then
+    host="${BASH_REMATCH[1]}"
+    port="${BASH_REMATCH[4]:-}"
+    [[ $host == *.* && $host != *..* &&
+      ! $host =~ ^[0-9.]+$ && ${#host} -le 253 ]] || return 1
+    local -a labels=()
+    IFS='.' read -r -a labels <<<"$host"
+    for label in "${labels[@]}"; do
+      [[ ${#label} -le 63 &&
+        $label =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || return 1
+    done
+  else
+    return 1
+  fi
+  if [[ -n $port ]]; then
+    (( 10#$port <= 65535 && 10#$port != 443 )) || return 1
+  fi
+
+  case "$path/" in
+  */./* | */../*) return 1 ;;
+  esac
+}
+
+registry_url_identity() {
+  local url="$1"
+  case "${url,,}" in
+  https://github.com/*) printf '%s\n' "${url,,}" ;;
+  *) printf '%s\n' "$url" ;;
+  esac
+}
+
+canonical_marketplace_repository_url() {
+  local url="${1:-}"
+  [[ $url =~ ^https://github\.com/[-A-Za-z0-9._]+/[-A-Za-z0-9._]+(\.git)?$ ]] ||
+    return 1
+  [[ $url == *.git ]] || url="$url.git"
+  valid_registry_url "$url" || return 1
+  printf '%s\n' "$url"
+}
+
+REGISTRY_URLS=()
+declare -A REGISTRY_URL_IDENTITIES=()
+declare -A REGISTRY_LISTING_VALIDATED_AT=()
+declare -A REGISTRY_LISTING_VALIDATED_COMMITS=()
+MARKETPLACE_IMPORTED_URLS=0
+
+github_repository_parts() {
+  local url="${1:-}"
+  shopt -s nocasematch
+  if [[ $url =~ ^https://github\.com/([-A-Za-z0-9._]+)/([-A-Za-z0-9._]+)\.git$ ]]; then
+    printf '%s\n%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+    shopt -u nocasematch
+    return 0
+  fi
+  shopt -u nocasematch
+  return 1
+}
+
+canonical_registry_url() {
+  local url="$1" parts=()
+  mapfile -t parts < <(github_repository_parts "$url")
+  if (( ${#parts[@]} == 2 )); then
+    printf 'https://github.com/%s/%s.git\n' "${parts[0],,}" "${parts[1],,}"
+  else
+    printf '%s\n' "$url"
+  fi
+}
+
+append_registry_url() {
+  local url
+  url="$(canonical_registry_url "$1")"
+  local duplicate_policy="${2:-reject}"
+  local identity
+  identity="$(registry_url_identity "$url")"
+  if [[ -n ${REGISTRY_URL_IDENTITIES[$identity]+x} ]]; then
+    [[ $duplicate_policy == skip ]]
+    return
+  fi
+  REGISTRY_URL_IDENTITIES[$identity]=1
+  REGISTRY_URLS+=("$url")
+}
+
+parse_registry_urls() {
+  local list_file="$1"
+  REGISTRY_URLS=()
+  REGISTRY_URL_IDENTITIES=()
+  REGISTRY_LISTING_VALIDATED_AT=()
+  REGISTRY_LISTING_VALIDATED_COMMITS=()
+  MARKETPLACE_IMPORTED_URLS=0
+
+  [[ -f $list_file && ! -L $list_file ]] || return 1
+
+  local line read_status
+  while true; do
+    line=""
+    if IFS= read -r line; then
+      read_status=0
+    else
+      read_status=$?
+    fi
+    (( read_status == 0 )) || [[ -n $line ]] || break
+    if (( read_status == 0 )) && [[ $line == *$'\r' ]]; then
+      line="${line%$'\r'}"
+    fi
+    [[ -n $line ]] || return 1
+    valid_registry_url "$line" || return 1
+    append_registry_url "$line" reject || return 1
+    (( read_status == 0 )) || break
+  done <"$list_file"
+  (( ${#REGISTRY_URLS[@]} > 0 ))
+}
+
+fetch_marketplace_registry() {
+  local destination="$1"
+  curl --fail --silent --show-error --location \
+    --proto '=https' --proto-redir '=https' \
+    --connect-timeout 10 --max-time 30 \
+    --max-filesize "$MARKETPLACE_REGISTRY_MAXIMUM_BYTES" \
+    --user-agent 'Okomart marketplace registry fetcher' \
+    --output "$destination" \
+    "$MARKETPLACE_REGISTRY_URL" >/dev/null 2>&1 || return 1
+  [[ -f $destination && ! -L $destination ]] || return 1
+  (( $(stat -c %s -- "$destination" 2>/dev/null) <=
+    MARKETPLACE_REGISTRY_MAXIMUM_BYTES ))
+}
+
+parse_marketplace_registry() {
+  local registry="$1"
+  [[ -f $registry && ! -L $registry ]] || return 1
+  jq -e '
+      type == "object"
+      and (.sources | type == "array")
+      and all(.sources[];
+        type == "object"
+        and (.type | type == "string")
+        and if .type == "plugin-source" then
+          (.repo | type == "string")
+          and ((.listingValidatedAt? // null) as $validatedAt
+            | $validatedAt == null
+              or (($validatedAt | type) == "string"
+                and (((try ($validatedAt
+                  | sub("\\.[0-9]+Z$"; "Z")
+                  | fromdateiso8601) catch null) | type) == "number")))
+          and ((.listingValidatedCommit? // null) as $validatedCommit
+            | $validatedCommit == null
+              or (($validatedCommit | type) == "string"
+                and ($validatedCommit | test("^[0-9A-Fa-f]{40,64}$"))))
+          and (.plugins | type == "object" and length > 0)
+          and all(.plugins | to_entries[];
+            (.key | type == "string"
+              and test("^[A-Za-z0-9][A-Za-z0-9._-]*$"))
+            and (.value | type == "object")
+            and ((.value.manifestPath? // "manifest.json") | type == "string")
+            and ((.value.installation? // null) as $installation
+              | $installation == null
+                or ($installation | type == "object"
+                  and .mode == "manual"
+                  and (.note | type == "string" and test("\\S")))))
+        else true end)
+    ' "$registry" >/dev/null 2>&1 || return 1
+
+  local plugin_id repository validated_at validated_commit url identity before
+  while IFS=$'\t' read -r plugin_id repository validated_at validated_commit; do
+    [[ -n $plugin_id && -n $repository ]] || return 1
+    [[ $plugin_id != "$OKOMART_ID" ]] || continue
+    url="$(canonical_marketplace_repository_url "$repository")" || return 1
+    [[ $(registry_url_identity "$url") != \
+      $(registry_url_identity "$OFFICIAL_CATALOG_URL") ]] || continue
+    identity="$(registry_url_identity "$url")"
+    if [[ $validated_at != - ]]; then
+      if [[ -n ${REGISTRY_LISTING_VALIDATED_AT[$identity]+x} &&
+        ${REGISTRY_LISTING_VALIDATED_AT[$identity]} != "$validated_at" ]]; then
+        return 1
+      fi
+      REGISTRY_LISTING_VALIDATED_AT[$identity]="$validated_at"
+    fi
+    if [[ $validated_commit != - ]]; then
+      validated_commit="${validated_commit,,}"
+      if [[ -n ${REGISTRY_LISTING_VALIDATED_COMMITS[$identity]+x} &&
+        ${REGISTRY_LISTING_VALIDATED_COMMITS[$identity]} != "$validated_commit" ]]; then
+        return 1
+      fi
+      REGISTRY_LISTING_VALIDATED_COMMITS[$identity]="$validated_commit"
+    fi
+    before=${#REGISTRY_URLS[@]}
+    append_registry_url "$url" skip || return 1
+    if (( ${#REGISTRY_URLS[@]} > before )); then
+      MARKETPLACE_IMPORTED_URLS=$((MARKETPLACE_IMPORTED_URLS + 1))
+    fi
+  done < <(
+    jq -r '
+      .sources | reverse[]
+      | select(.type == "plugin-source")
+      | select((.plugins | length) == 1)
+      | (.plugins | to_entries[0]) as $plugin
+      | select(($plugin.value.manifestPath? // "manifest.json") == "manifest.json")
+      | select($plugin.value.installation? == null)
+      | [
+          $plugin.key,
+          .repo,
+          (if .listingValidatedAt? == null then "-" else
+            (.listingValidatedAt
+              | sub("\\.[0-9]+Z$"; "Z")
+              | fromdateiso8601 | floor | tostring)
+          end),
+          (.listingValidatedCommit? // "-")
+        ]
+      | @tsv
+    ' "$registry"
+  )
+}
+
+git_commit_timestamp() {
+  local repository="$1"
+  local commit="$2"
+  local timestamp
+  timestamp="$(
+    git -C "$repository" show -s --format=%ct "$commit" 2>/dev/null
+  )" || return 1
+  [[ $timestamp =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$timestamp"
+}
+
+VALIDATION_ERROR=""
+validate_manifest() {
+  local dir="$1"
+  local manifest="$dir/manifest.json"
+  VALIDATION_ERROR=""
+
+  if [[ ! -f $manifest ]] || ! jq -e '
+      type == "object"
+      and .schemaVersion == 1
+      and (.id | type == "string"
+        and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")
+        and (contains("..") | not)
+        and (startswith("omarchy.") | not))
+      and (.name | type == "string" and length > 0)
+      and (.version | type == "string" and length > 0)
+      and (.kinds | type == "array" and length > 0
+        and all(.[]; type == "string"
+          and IN("bar-widget", "panel", "overlay", "menu", "service", "bar")))
+      and (.entryPoints | type == "object")
+      and all(.entryPoints[];
+        type == "string"
+        and length > 0
+        and (startswith("/") | not)
+        and (contains("\n") | not)
+        and (contains("..") | not))
+    ' "$manifest" >/dev/null 2>&1; then
+    VALIDATION_ERROR="Invalid or unsupported manifest.json"
+    return 1
+  fi
+
+  local ep resolved root
+  root="$(realpath -m -- "$dir")/"
+  while IFS= read -r ep; do
+    resolved="$(realpath -m -- "$dir/$ep")"
+    [[ $resolved == "$root"* && -f $resolved ]] || {
+      VALIDATION_ERROR="Manifest entry point is missing or escapes the plugin"
+      return 1
+    }
+  done < <(jq -r '.entryPoints[]' "$manifest")
+
+  local scan_dir
+  scan_dir="$(realpath -m -- "$dir")"
+  if find "$scan_dir" -path "$scan_dir/.git" -prune -o -type l -print -quit 2>/dev/null |
+    grep -q .; then
+    VALIDATION_ERROR="Plugin contains a symlink"
+    return 1
+  fi
+  return 0
+}
+
+validate_remote_catalog_manifest() {
+  local manifest="$1"
+  VALIDATION_ERROR=""
+  if ! jq -e '
+      type == "object"
+      and .schemaVersion == 1
+      and (.id | type == "string"
+        and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")
+        and (contains("..") | not)
+        and (startswith("omarchy.") | not))
+      and (.name | type == "string" and test("\\S"))
+      and (.version | type == "string" and length > 0)
+      and (.author | type == "string" and test("\\S"))
+      and (.description | type == "string" and test("\\S"))
+      and (.kinds | type == "array" and length > 0
+        and all(.[]; type == "string"
+          and IN("bar-widget", "panel", "overlay", "menu", "service", "bar")))
+      and (.entryPoints | type == "object")
+      and all(.entryPoints[];
+        type == "string" and length > 0
+        and (startswith("/") | not)
+        and (contains("\\n") | not)
+        and (contains("..") | not))
+    ' "$manifest" >/dev/null 2>&1; then
+    VALIDATION_ERROR="Invalid or unsupported catalog manifest.json"
+    return 1
+  fi
+}
+
+manifest_metadata() {
+  local manifest="$1"
+  jq -c '{
+    schemaVersion: 1,
+    id: (.id | tostring),
+    name: (.name | tostring),
+    description: ((.description // "") | tostring),
+    author: ((.author // "") | tostring),
+    version: (.version | tostring),
+    license: (if .license == null then null else (.license | tostring) end),
+    kinds: .kinds,
+    entryPoints: .entryPoints
+  }' "$manifest"
+}
+
+fetch_github_manifest_record() {
+  local index="$1" url="$2" work="$3" parts=()
+  local body="$work/manifest-$index.json"
+  mapfile -t parts < <(github_repository_parts "$url")
+  if (( ${#parts[@]} != 2 )); then
+    jq -cn --arg sourceUrl "$url" --arg error "Invalid GitHub repository URL" \
+      '{ok:false,sourceUrl:$sourceUrl,error:$error}' >"$work/result-$index.json"
+    return
+  fi
+  local raw="$GITHUB_RAW_BASE/${parts[0]}/${parts[1]}/HEAD/manifest.json"
+  if curl --fail --silent --show-error --location \
+      --proto '=https' --proto-redir '=https' \
+      --connect-timeout 8 --max-time 20 --max-filesize "$MANIFEST_MAXIMUM_BYTES" \
+      --user-agent 'Okomart manifest fetcher' --output "$body" "$raw" \
+      >/dev/null 2>&1 && [[ -f $body && ! -L $body ]] &&
+      (( $(stat -c %s -- "$body" 2>/dev/null) <= MANIFEST_MAXIMUM_BYTES )); then
+    jq -cn --arg sourceUrl "$url" --arg manifestPath "$body" \
+      '{ok:true,sourceUrl:$sourceUrl,manifestPath:$manifestPath,revision:null,headTimestamp:null}' \
+      >"$work/result-$index.json"
+  else
+    rm -f -- "$body"
+    jq -cn --arg sourceUrl "$url" --arg error "Could not fetch manifest.json" \
+      '{ok:false,sourceUrl:$sourceUrl,error:$error}' >"$work/result-$index.json"
+  fi
+}
+
+fetch_generic_manifest_record() {
+  local index="$1" url="$2" work="$3"
+  local temp="$work/generic-$index"
+  local repo="$temp/repository" body="$work/manifest-$index.json"
+  mkdir -m 700 -- "$temp" || return
+  if timeout --signal=TERM --kill-after=2s 30s git clone --quiet --depth 1 \
+      --filter=blob:none --no-checkout --no-tags --no-recurse-submodules \
+      -- "$url" "$repo" >/dev/null 2>&1 &&
+      [[ $(git -C "$repo" ls-tree HEAD -- manifest.json 2>/dev/null | awk 'NR==1 {print $1}') =~ ^100(644|755)$ ]] &&
+      timeout --signal=TERM --kill-after=2s 20s \
+        git -C "$repo" show HEAD:manifest.json >"$body" 2>/dev/null; then
+    local revision timestamp
+    revision="$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)"
+    timestamp="$(git_commit_timestamp "$repo" "$revision" 2>/dev/null || true)"
+    if [[ $revision =~ ^[0-9a-f]{40,64}$ && $timestamp =~ ^[0-9]+$ &&
+      -f $body && ! -L $body ]] &&
+      (( $(stat -c %s -- "$body" 2>/dev/null) <= MANIFEST_MAXIMUM_BYTES )); then
+      jq -cn --arg sourceUrl "$url" --arg manifestPath "$body" \
+        --arg revision "$revision" --argjson headTimestamp "$timestamp" \
+        '{ok:true,sourceUrl:$sourceUrl,manifestPath:$manifestPath,
+          revision:$revision,headTimestamp:$headTimestamp}' \
+        >"$work/result-$index.json"
+      rm -rf --one-file-system -- "$temp"
+      return
+    fi
+  fi
+  rm -rf --one-file-system -- "$temp"
+  rm -f -- "$body"
+  jq -cn --arg sourceUrl "$url" --arg error "Could not read manifest.json from the temporary repository" \
+    '{ok:false,sourceUrl:$sourceUrl,error:$error}' >"$work/result-$index.json"
+}
+
+run_manifest_pool() {
+  local kind="$1" tasks="$2" work="$3" limit="$4"
+  local index url pid
+  local -a pids=()
+  while IFS=$'\t' read -r index url; do
+    [[ -n $index && -n $url ]] || continue
+    if [[ $kind == github ]]; then
+      fetch_github_manifest_record "$index" "$url" "$work" &
+    else
+      fetch_generic_manifest_record "$index" "$url" "$work" &
+    fi
+    pids+=("$!")
+    if (( ${#pids[@]} >= limit )); then
+      wait "${pids[0]}" || true
+      pids=("${pids[@]:1}")
+    fi
+  done <"$tasks"
+  for pid in "${pids[@]}"; do wait "$pid" || true; done
+}
+
+process_manifest_result() {
+  local index="$1" url="$2" work="$3" local_registry_url_count="$4"
+  local raw_entries="$5" errors="$6" ids_name="$7"
+  local -n seen_ids="$ids_name"
+  local record="$work/result-$index.json" manifest metadata id
+  local revision head_timestamp identity listing_validated_at
+  local listing_validated_commit
+
+  if [[ ! -f $record ]] || ! jq -e '.ok == true' "$record" >/dev/null 2>&1; then
+    jq -cn --arg sourceUrl "$url" \
+      --arg error "$(jq -r '.error // "Manifest request failed"' "$record" 2>/dev/null || printf 'Manifest request failed')" \
+      '{sourceUrl:$sourceUrl,error:$error,phase:"manifest"}' >>"$errors"
+    return 1
+  fi
+
+  manifest="$(jq -r '.manifestPath' "$record")"
+  if ! validate_remote_catalog_manifest "$manifest"; then
+    jq -cn --arg sourceUrl "$url" --arg error "$VALIDATION_ERROR" \
+      '{sourceUrl:$sourceUrl,error:$error,phase:"validation"}' >>"$errors"
+    return 0
+  fi
+  metadata="$(manifest_metadata "$manifest")" || return 0
+  id="$(jq -r '.id' <<<"$metadata")"
+  if [[ $id == "$OKOMART_ID" ]]; then
+    jq -cn --arg sourceUrl "$url" \
+      --arg error "Catalog entries cannot reuse Okomart's plugin id" \
+      '{sourceUrl:$sourceUrl,error:$error,phase:"validation"}' >>"$errors"
+    return 0
+  fi
+  if [[ -n ${seen_ids[$id]+x} ]]; then
+    if [[ ${seen_ids[$id]} == local ]] && (( index >= local_registry_url_count )); then
+      return 0
+    fi
+    jq -cn --arg sourceUrl "$url" --arg error "Duplicate plugin id '$id'" \
+      '{sourceUrl:$sourceUrl,error:$error,phase:"validation"}' >>"$errors"
+    return 0
+  fi
+  if (( index < local_registry_url_count )); then
+    seen_ids[$id]=local
+  else
+    seen_ids[$id]=marketplace
+  fi
+
+  revision="$(jq -c '.revision' "$record")"
+  head_timestamp="$(jq -c '.headTimestamp' "$record")"
+  identity="$(registry_url_identity "$url")"
+  listing_validated_at="${REGISTRY_LISTING_VALIDATED_AT[$identity]:-}"
+  listing_validated_commit="${REGISTRY_LISTING_VALIDATED_COMMITS[$identity]:-}"
+  jq -c --arg sourceUrl "$url" \
+    --arg listingValidatedAt "$listing_validated_at" \
+    --arg listingValidatedCommit "$listing_validated_commit" \
+    --argjson revision "$revision" --argjson headTimestamp "$head_timestamp" '
+    . + {
+      sourceUrl:$sourceUrl,
+      revision:(if $listingValidatedCommit == "" then $revision
+        else $listingValidatedCommit end),
+      listingValidatedAt:(if $listingValidatedAt == "" then null
+        else ($listingValidatedAt | tonumber) end),
+      updatedAt:null,
+      _headTimestamp:$headTimestamp
+    }' <<<"$metadata" >>"$raw_entries" || true
+  return 0
+}
+
+publish_cold_catalog_wave() {
+  local raw_entries="$1" errors="$2" checked_at="$3"
+  local completed="$4" total="$5" wave="$6" work="$7"
+  local entries_file="$work/wave-entries.json"
+  local errors_file="$work/wave-errors.json"
+  local canonical generation next entry_count=0 published=false
+
+  if [[ -s $raw_entries ]]; then
+    jq -s 'map(del(._headTimestamp))
+      | sort_by(-(.listingValidatedAt // .updatedAt // 0),
+          (.name | ascii_downcase), .id)' \
+      "$raw_entries" >"$entries_file" || return 1
+    jq -s '.' "$errors" >"$errors_file" || return 1
+    canonical="$(jq -S -c 'sort_by(.sourceUrl)
+      | map(del(.updatedAt,.revision))' "$entries_file")"
+    generation="$(printf '%s' "$canonical" | sha256sum | awk '{print $1}')"
+    entry_count="$(jq 'length' "$entries_file")"
+    next="$(jq -cn --arg generation "$generation" --arg checkedAt "$checked_at" \
+      --argjson completed "$completed" --argjson total "$total" \
+      --argjson wave "$wave" --slurpfile entries "$entries_file" \
+      --slurpfile errors "$errors_file" '
+      {schemaVersion:1,
+        active:{generation:$generation,entries:($entries[0] // []),
+          errors:($errors[0] // []),checkedAt:$checkedAt,partial:true,
+          completed:$completed,total:$total,wave:$wave},
+        pending:null}
+    ')"
+    write_catalog "$next" || return 1
+    published=true
+  fi
+
+  if [[ ${OKOMART_REFRESH_PROGRESS:-0} == 1 ]]; then
+    jq -cn --argjson published "$published" --argjson wave "$wave" \
+      --argjson completed "$completed" --argjson total "$total" \
+      --argjson entryCount "$entry_count" \
+      '{ok:true,progress:true,coldPublished:$published,wave:$wave,
+        completed:$completed,total:$total,entryCount:$entryCount}'
+  fi
+}
+
+refresh_failure() {
+  jq -cn --arg error "$1" '{ok:false,staged:false,error:$error}'
+}
+
+stage_refresh_worker() {
+  local source_arg="${1:-}" source_dir
+  source_dir="$(realpath -m -- "$source_arg")"
+  [[ -d $source_dir && -f $source_dir/plugins.txt ]] || {
+    refresh_failure "Okomart's local plugins.txt registry is unavailable."
+    return 1
+  }
+  if [[ -L $CATALOG_LOCK || -d $CATALOG_LOCK ]]; then
+    refresh_failure "The Okomart catalog lock path is unsafe."
+    return 1
+  fi
+  exec 8>>"$CATALOG_LOCK" || {
+    refresh_failure "Could not open the Okomart catalog lock."
+    return 1
+  }
+  if ! flock -n 8; then
+    jq -cn '{ok:true,staged:false,busy:true}'
+    return
+  fi
+  cleanup_legacy_catalog_data || {
+    refresh_failure "Could not safely remove legacy Okomart catalog data."
+    return 1
+  }
+
+  local work marketplace_file
+  ensure_work_root || {
+    refresh_failure "Could not prepare Okomart's runtime work directory."
+    return 1
+  }
+  work="$(mktemp -d "$WORK_ROOT/refresh.XXXXXX")" || {
+    refresh_failure "Could not prepare catalog refresh working files."
+    return 1
+  }
+  chmod 700 "$work"
+  trap 'if [[ -n ${work:-} && -d $work ]]; then rm -rf --one-file-system -- "$work"; fi; exit 143' TERM INT HUP
+  marketplace_file="$work/marketplace.json"
+
+  if ! parse_registry_urls "$source_dir/plugins.txt"; then
+    rm -rf --one-file-system -- "$work"
+    refresh_failure "The local plugins.txt registry is invalid."
+    return 1
+  fi
+  local local_registry_url_count=${#REGISTRY_URLS[@]}
+  if ! fetch_marketplace_registry "$marketplace_file"; then
+    rm -rf --one-file-system -- "$work"
+    refresh_failure "Could not fetch the HANCORE marketplace registry."
+    return 1
+  fi
+  if ! parse_marketplace_registry "$marketplace_file"; then
+    rm -rf --one-file-system -- "$work"
+    refresh_failure "The HANCORE marketplace registry is invalid."
+    return 1
+  fi
+  (( ${#REGISTRY_URLS[@]} > 0 )) || {
+    rm -rf --one-file-system -- "$work"
+    refresh_failure "The merged plugin registry is empty."
+    return 1
+  }
+
+  local current active_generation checked_at cold=false
+  local cold_publish=false cold_finalize=false
+  current="$(read_catalog)"
+  active_generation="$(jq -r '.active.generation // ""' <<<"$current")"
+  checked_at="$(utc_now)"
+  if [[ -z $active_generation ]]; then
+    cold=true
+    cold_publish=true
+    cold_finalize=true
+  elif jq -e '.active.partial == true' <<<"$current" >/dev/null 2>&1; then
+    cold=true
+    cold_finalize=true
+  fi
+
+  local github_tasks="$work/wave-github.tasks"
+  local generic_tasks="$work/wave-generic.tasks"
+  local raw_entries="$work/raw-entries.jsonl" errors="$work/errors.jsonl"
+  : >"$raw_entries"; : >"$errors"
+  local request_failures=0 index url cursor=0 completed=0 wave=0
+  local github_count generic_count wave_count github_pool generic_pool
+  local total=${#REGISTRY_URLS[@]}
+  local -a wave_indices=()
+  declare -A ids=()
+  while (( cursor < total )); do
+    : >"$github_tasks"; : >"$generic_tasks"
+    wave_indices=()
+    github_count=0
+    generic_count=0
+    while (( cursor < total )); do
+      index=$cursor
+      url="${REGISTRY_URLS[$index]}"
+      if github_repository_parts "$url" >/dev/null; then
+        if (( github_count >= GITHUB_MANIFEST_WORKERS &&
+          ${#wave_indices[@]} > 0 )); then
+          break
+        fi
+        printf '%s\t%s\n' "$index" "$url" >>"$github_tasks"
+        github_count=$((github_count + 1))
+      else
+        if (( generic_count >= GENERIC_MANIFEST_WORKERS &&
+          ${#wave_indices[@]} > 0 )); then
+          break
+        fi
+        printf '%s\t%s\n' "$index" "$url" >>"$generic_tasks"
+        generic_count=$((generic_count + 1))
+      fi
+      wave_indices+=("$index")
+      cursor=$((cursor + 1))
+    done
+
+    github_pool=""
+    generic_pool=""
+    if [[ -s $github_tasks ]]; then
+      run_manifest_pool github "$github_tasks" "$work" "$GITHUB_MANIFEST_WORKERS" &
+      github_pool=$!
+    fi
+    if [[ -s $generic_tasks ]]; then
+      run_manifest_pool generic "$generic_tasks" "$work" "$GENERIC_MANIFEST_WORKERS" &
+      generic_pool=$!
+    fi
+    [[ -z $github_pool ]] || wait "$github_pool" || true
+    [[ -z $generic_pool ]] || wait "$generic_pool" || true
+
+    wave=$((wave + 1))
+    wave_count=${#wave_indices[@]}
+    for index in "${wave_indices[@]}"; do
+      url="${REGISTRY_URLS[$index]}"
+      if ! process_manifest_result "$index" "$url" "$work" \
+          "$local_registry_url_count" "$raw_entries" "$errors" ids; then
+        request_failures=$((request_failures + 1))
+      fi
+    done
+    completed=$((completed + wave_count))
+    if [[ $cold_publish == true ]] && ! publish_cold_catalog_wave \
+        "$raw_entries" "$errors" "$checked_at" "$completed" "$total" \
+        "$wave" "$work"; then
+      rm -rf --one-file-system -- "$work"
+      refresh_failure "Could not publish the partial cold catalog."
+      return 1
+    fi
+  done
+
+  if (( request_failures == total )); then
+    rm -rf --one-file-system -- "$work"
+    refresh_failure "Every plugin manifest request failed; the active catalog was preserved."
+    return 1
+  fi
+
+  local staged_entries timestamp_sources fallbacks
+  staged_entries="$work/staged-entries.jsonl"
+  timestamp_sources="$work/timestamp-sources.jsonl"
+  fallbacks="$work/fallbacks.jsonl"
+  : >"$staged_entries"; : >"$timestamp_sources"; : >"$fallbacks"
+  local entry old new_version old_version need_timestamp old_updated old_revision
+  local fetched_revision fetched_timestamp listing_validated_timestamp
+  while IFS= read -r entry; do
+    [[ -n $entry ]] || continue
+    url="$(jq -r '.sourceUrl' <<<"$entry")"
+    id="$(jq -r '.id' <<<"$entry")"
+    old="$(jq -c --arg url "$url" --arg id "$id" '
+      [.active.entries[]? | select(.sourceUrl == $url and .id == $id)][0] // null
+    ' <<<"$current")"
+    new_version="$(jq -r '.version' <<<"$entry")"
+    old_version="$(jq -r 'if . == null then "" else .version end' <<<"$old")"
+    old_updated="$(jq -c 'if . == null then null else (.updatedAt // null) end' <<<"$old")"
+    old_revision="$(jq -c 'if . == null then null else (.revision // null) end' <<<"$old")"
+    fetched_revision="$(jq -c '.revision // null' <<<"$entry")"
+    fetched_timestamp="$(jq -c '._headTimestamp // null' <<<"$entry")"
+    listing_validated_timestamp="$(jq -c '.listingValidatedAt // null' <<<"$entry")"
+    need_timestamp=false
+    if [[ $listing_validated_timestamp == null ]]; then
+      if [[ $old == null || $old_updated == null ]] ||
+        semver_is_higher "$new_version" "$old_version"; then
+        need_timestamp=true
+      fi
+    elif [[ $fetched_revision != null ]]; then
+      old_revision="$fetched_revision"
+    fi
+    if [[ $need_timestamp == true ]]; then
+      jq -cn --arg sourceUrl "$url" '{sourceUrl:$sourceUrl}' >>"$timestamp_sources"
+      if [[ $fetched_timestamp != null && $fetched_revision != null ]]; then
+        jq -cn --arg sourceUrl "$url" --argjson updatedAt "$fetched_timestamp" \
+          --argjson revision "$fetched_revision" \
+          '{sourceUrl:$sourceUrl,updatedAt:$updatedAt,revision:$revision}' >>"$fallbacks"
+      fi
+      if [[ $old == null && $fetched_revision != null ]]; then
+        old_revision="$fetched_revision"
+      fi
+    fi
+    jq -c --argjson updatedAt "$old_updated" --argjson revision "$old_revision" \
+      'del(._headTimestamp) | .updatedAt=$updatedAt | .revision=$revision' \
+      <<<"$entry" >>"$staged_entries"
+  done <"$raw_entries"
+
+  local canonical generation entries_file errors_file sources_file fallbacks_file
+  canonical="$(jq -s -S -c 'sort_by(.sourceUrl) | map(del(.updatedAt,.revision))' "$staged_entries")"
+  generation="$(printf '%s' "$canonical" | sha256sum | awk '{print $1}')"
+  entries_file="$work/entries.json"
+  errors_file="$work/catalog-errors.json"
+  sources_file="$work/timestamp-sources.json"
+  fallbacks_file="$work/timestamp-fallbacks.json"
+  if ! jq -s 'sort_by(-(.listingValidatedAt // .updatedAt // 0),
+      (.name | ascii_downcase), .id)' \
+      "$staged_entries" >"$entries_file" \
+    || ! jq -s '.' "$errors" >"$errors_file" \
+    || ! jq -s 'map(.sourceUrl)' "$timestamp_sources" >"$sources_file" \
+    || ! jq -s '.' "$fallbacks" >"$fallbacks_file"; then
+    rm -rf --one-file-system -- "$work"
+    refresh_failure "Could not assemble the catalog candidate; the active catalog was preserved."
+    return 1
+  fi
+
+  local next preserve_pending=false
+  if [[ $cold_finalize == true ]]; then
+    next="$(jq -cn --arg generation "$generation" --arg checkedAt "$checked_at" \
+      --slurpfile entries "$entries_file" --slurpfile errors "$errors_file" \
+      --slurpfile sources "$sources_file" --slurpfile fallbacks "$fallbacks_file" '
+      ($entries[0] // []) as $catalogEntries
+      | ($errors[0] // []) as $catalogErrors
+      | ($sources[0] // []) as $timestampSources
+      | ($fallbacks[0] // []) as $timestampFallbacks
+      |
+      {schemaVersion:1,
+        active:{generation:$generation,entries:$catalogEntries,
+          errors:$catalogErrors,checkedAt:$checkedAt},
+        pending:{generation:$generation,ready:($timestampSources|length == 0),
+          entries:$catalogEntries,errors:$catalogErrors,checkedAt:$checkedAt,
+          timestampSources:$timestampSources,
+          timestampFallbacks:$timestampFallbacks,enrichmentOnly:true}}
+    ')"
+  elif [[ $generation == "$active_generation" ]]; then
+    if jq -e --arg generation "$generation" '
+      .pending != null and .pending.generation == $generation
+      and .pending.enrichmentOnly == true
+      and (.pending.entries != .active.entries)
+    ' <<<"$current" >/dev/null; then
+      preserve_pending=true
+    fi
+    next="$(jq -c --arg checkedAt "$checked_at" --slurpfile errors "$errors_file" \
+      --argjson preserve "$preserve_pending" '
+      .active.checkedAt=$checkedAt | .active.errors=($errors[0] // [])
+      | if $preserve then . else .pending=null end
+    ' <<<"$current")"
+  else
+    next="$(jq -c --arg generation "$generation" --arg checkedAt "$checked_at" \
+      --slurpfile entries "$entries_file" --slurpfile errors "$errors_file" \
+      --slurpfile sources "$sources_file" --slurpfile fallbacks "$fallbacks_file" '
+      ($entries[0] // []) as $catalogEntries
+      | ($errors[0] // []) as $catalogErrors
+      | ($sources[0] // []) as $timestampSources
+      | ($fallbacks[0] // []) as $timestampFallbacks
+      | .pending={generation:$generation,
+          ready:($timestampSources|length == 0),entries:$catalogEntries,
+          errors:$catalogErrors,checkedAt:$checkedAt,
+          timestampSources:$timestampSources,
+          timestampFallbacks:$timestampFallbacks,enrichmentOnly:false}
+    ' <<<"$current")"
+  fi
+  if [[ -z $next ]] || ! jq -e '
+      type == "object" and .schemaVersion == 1
+      and (.active | type == "object") and (.active.entries | type == "array")
+      and (.active.errors | type == "array")
+      and (.pending == null or ((.pending | type == "object")
+        and (.pending.entries | type == "array")
+        and (.pending.errors | type == "array")
+        and (.pending.ready | type == "boolean")))
+    ' <<<"$next" >/dev/null 2>&1 || ! write_catalog "$next"; then
+    rm -rf --one-file-system -- "$work"
+    refresh_failure "Could not atomically stage the catalog generation."
+    return 1
+  fi
+  rm -rf --one-file-system -- "$work"
+  jq -cn --arg generation "$generation" --arg activeGeneration "$(jq -r '.active.generation // ""' <<<"$next")" \
+    --argjson cold "$cold" --argjson changed "$([[ $cold == true || $generation != "$active_generation" ]] && printf true || printf false)" \
+    --argjson pending "$(jq -c '.pending | if . == null then null else {generation,ready} end' <<<"$next")" \
+    '{ok:true,staged:true,coldPublished:$cold,changed:$changed,
+      generation:$generation,activeGeneration:$activeGeneration,pending:$pending}'
+}
+
+refresh_command() {
+  local source_arg="$1" progress="${2:-false}" output rc=0
+  if [[ $progress == true ]]; then
+    OKOMART_REFRESH_PROGRESS=1 \
+      timeout --signal=TERM --kill-after=3s "${REFRESH_DEADLINE_SECONDS}s" \
+      bash "$SCRIPT_PATH" _refresh-worker "$source_arg" || rc=$?
+    if (( rc == 124 || rc == 137 )); then
+      refresh_failure "Catalog refresh exceeded its overall time limit; the active catalog was preserved."
+      return 1
+    fi
+    return $rc
+  fi
+  output="$(timeout --signal=TERM --kill-after=3s "${REFRESH_DEADLINE_SECONDS}s" \
+    bash "$SCRIPT_PATH" _refresh-worker "$source_arg")" || rc=$?
+  if (( rc == 124 || rc == 137 )); then
+    refresh_failure "Catalog refresh exceeded its overall time limit; the active catalog was preserved."
+    return 1
+  fi
+  [[ -n $output ]] && printf '%s\n' "$output" || refresh_failure "Catalog refresh failed before producing a result."
+  return $rc
+}
+
+fetch_github_timestamp_record() {
+  local index="$1" url="$2" work="$3" parts=()
+  local body="$work/timestamp-$index.json"
+  mapfile -t parts < <(github_repository_parts "$url")
+  (( ${#parts[@]} == 2 )) || return 1
+  local endpoint="$GITHUB_API_BASE/repos/${parts[0]}/${parts[1]}/commits?path=manifest.json&per_page=1"
+  if curl --fail --silent --show-error --location \
+      --proto '=https' --proto-redir '=https' --connect-timeout 8 --max-time 20 \
+      --max-filesize "$MANIFEST_MAXIMUM_BYTES" --user-agent 'Okomart timestamp enricher' \
+      --header 'Accept: application/vnd.github+json' --output "$body" "$endpoint" \
+      >/dev/null 2>&1 && jq -e 'type == "array" and length > 0' "$body" >/dev/null 2>&1; then
+    if jq -c --arg sourceUrl "$url" '
+      .[0] | (.commit.committer.date // .commit.author.date) as $date
+      | {ok:true,sourceUrl:$sourceUrl,revision:.sha,updatedAt:($date | fromdateiso8601)}
+      | select(.revision | type == "string" and test("^[0-9a-f]{40,64}$"))
+    ' "$body" >"$work/time-result-$index.json" 2>/dev/null; then return; fi
+  fi
+  jq -cn --arg sourceUrl "$url" --arg error "Could not resolve the manifest-changing commit" \
+    '{ok:false,sourceUrl:$sourceUrl,error:$error}' >"$work/time-result-$index.json"
+}
+
+run_timestamp_pool() {
+  local tasks="$1" work="$2" limit="$3" index url pid
+  local -a pids=()
+  while IFS=$'\t' read -r index url; do
+    [[ -n $index && -n $url ]] || continue
+    fetch_github_timestamp_record "$index" "$url" "$work" &
+    pids+=("$!")
+    if (( ${#pids[@]} >= limit )); then
+      wait "${pids[0]}" || true
+      pids=("${pids[@]:1}")
+    fi
+  done <"$tasks"
+  for pid in "${pids[@]}"; do wait "$pid" || true; done
+}
+
+enrich_command() {
+  local generation="${1:-}"
+  [[ $generation =~ ^[0-9a-f]{64}$ ]] || {
+    json_error "Usage: okomart enrich <pending-generation>"
+    return 2
+  }
+  local initial pending
+  initial="$(read_catalog)"
+  pending="$(jq -c --arg generation "$generation" '
+    if .pending != null and .pending.generation == $generation then .pending else null end
+  ' <<<"$initial")"
+  if [[ $pending == null ]]; then
+    jq -cn --arg generation "$generation" '{ok:false,stale:true,generation:$generation}'
+    return 1
+  fi
+  if jq -e '.ready == true' <<<"$pending" >/dev/null; then
+    jq -cn --arg generation "$generation" '{ok:true,stale:false,generation:$generation,ready:true}'
+    return
+  fi
+  local work tasks updates errors index=0 url fallback
+  ensure_work_root || return 1
+  work="$(mktemp -d "$WORK_ROOT/enrich.XXXXXX")" || return 1
+  chmod 700 "$work"
+  tasks="$work/tasks"; updates="$work/updates.jsonl"; errors="$work/errors.jsonl"
+  : >"$tasks"; : >"$updates"; : >"$errors"
+  while IFS= read -r url; do
+    [[ -n $url ]] || continue
+    fallback="$(jq -c --arg url "$url" '[.timestampFallbacks[]? | select(.sourceUrl == $url)][0] // null' <<<"$pending")"
+    if [[ $fallback != null ]]; then
+      printf '%s\n' "$fallback" >>"$updates"
+    elif github_repository_parts "$url" >/dev/null; then
+      printf '%s\t%s\n' "$index" "$url" >>"$tasks"
+      index=$((index + 1))
+    else
+      jq -cn --arg sourceUrl "$url" --arg error "No generic-host HEAD timestamp was available" \
+        '{sourceUrl:$sourceUrl,error:$error,phase:"timestamp"}' >>"$errors"
+    fi
+  done < <(jq -r '.timestampSources[]?' <<<"$pending")
+  run_timestamp_pool "$tasks" "$work" "$GITHUB_TIMESTAMP_WORKERS"
+  local result
+  for (( index = 0; index < $(wc -l <"$tasks"); index++ )); do
+    result="$work/time-result-$index.json"
+    if [[ -f $result ]] && jq -e '.ok == true' "$result" >/dev/null 2>&1; then
+      jq -c 'del(.ok)' "$result" >>"$updates"
+    else
+      jq -c '{sourceUrl,error,phase:"timestamp"}' "$result" 2>/dev/null >>"$errors" || true
+    fi
+  done
+  local entries_file enrichment_errors_file error_count next current
+  entries_file="$work/enriched-entries.json"
+  enrichment_errors_file="$work/enrichment-errors.json"
+  if ! jq -cn --slurpfile entries <(jq -c '.entries[]' <<<"$pending") \
+      --slurpfile updates "$updates" '
+      $entries | map(. as $entry
+        | ([$updates[] | select(.sourceUrl == $entry.sourceUrl)][0] // null) as $update
+        | if $update == null then . else
+            .updatedAt=$update.updatedAt | .revision=$update.revision
+          end)
+      | sort_by(-(.listingValidatedAt // .updatedAt // 0),
+          (.name | ascii_downcase), .id)
+    ' >"$entries_file" \
+    || ! jq -s '.' "$errors" >"$enrichment_errors_file"; then
+    rm -rf --one-file-system -- "$work"
+    json_error "Could not assemble timestamp enrichment"
+    return 1
+  fi
+  error_count="$(jq 'length' "$enrichment_errors_file")"
+
+  if [[ -L $CATALOG_LOCK || -d $CATALOG_LOCK ]]; then
+    rm -rf --one-file-system -- "$work"
+    return 1
+  fi
+  exec 8>>"$CATALOG_LOCK" || {
+    rm -rf --one-file-system -- "$work"
+    return 1
+  }
+  flock 8 || {
+    rm -rf --one-file-system -- "$work"
+    return 1
+  }
+  current="$(read_catalog)"
+  if ! jq -e --arg generation "$generation" '
+      .pending != null and .pending.generation == $generation and .pending.ready == false
+    ' <<<"$current" >/dev/null; then
+    rm -rf --one-file-system -- "$work"
+    jq -cn --arg generation "$generation" '{ok:false,stale:true,generation:$generation}'
+    return 1
+  fi
+  next="$(jq -c --arg generation "$generation" \
+    --slurpfile entries "$entries_file" \
+    --slurpfile enrichmentErrors "$enrichment_errors_file" '
+      .pending.entries=($entries[0] // [])
+      | .pending.errors += ($enrichmentErrors[0] // [])
+      | .pending.ready=true
+      | .pending.enrichedAt=(now | todateiso8601)
+      | del(.pending.timestampSources,.pending.timestampFallbacks)
+    ' <<<"$current")"
+  if [[ -z $next ]] || ! jq -e '
+      .schemaVersion == 1 and (.active.entries | type == "array")
+      and (.pending | type == "object") and .pending.ready == true
+      and (.pending.entries | type == "array")
+      and (.pending.errors | type == "array")
+    ' <<<"$next" >/dev/null 2>&1 || ! write_catalog "$next"; then
+    rm -rf --one-file-system -- "$work"
+    json_error "Could not atomically store timestamp enrichment"
+    return 1
+  fi
+  rm -rf --one-file-system -- "$work"
+  jq -cn --arg generation "$generation" --argjson errorCount "$error_count" \
+    '{ok:true,stale:false,generation:$generation,ready:true,enrichmentErrorCount:$errorCount}'
+}
+
+promote_command() {
+  local generation="${1:-}"
+  [[ $generation =~ ^[0-9a-f]{64}$ && $# == 1 ]] || {
+    json_error "Usage: okomart promote <pending-generation>"
+    return 2
+  }
+  [[ ! -L $CATALOG_LOCK && ! -d $CATALOG_LOCK ]] || return 1
+  exec 8>>"$CATALOG_LOCK" || return 1
+  flock 8 || return 1
+  local current next
+  current="$(read_catalog)"
+  if ! jq -e --arg generation "$generation" '
+      .pending != null and .pending.ready == true and .pending.generation == $generation
+    ' <<<"$current" >/dev/null; then
+    jq -cn --arg generation "$generation" \
+      '{ok:false,promoted:false,stale:true,generation:$generation,
+        error:"The pending catalog generation is no longer ready."}'
+    return 1
+  fi
+  next="$(jq -c '
+    .active=(.pending | del(.ready,.timestampSources,.timestampFallbacks,.enrichmentOnly))
+    | .pending=null
+  ' <<<"$current")"
+  write_catalog "$next" || {
+    json_error "Could not atomically promote the pending catalog generation"
+    return 1
+  }
+  jq -cn --arg generation "$generation" '{ok:true,promoted:true,generation:$generation}'
+}
+
+valid_media_session_id() {
+  [[ ${1:-} =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$ && $1 != *..* ]]
+}
+
+ensure_media_root() {
+  [[ ! -L $MEDIA_ROOT && ( ! -e $MEDIA_ROOT || -d $MEDIA_ROOT ) ]] || return 1
+  mkdir -p -m 700 -- "$MEDIA_ROOT" && chmod 700 -- "$MEDIA_ROOT"
+}
+
+safe_remove_media_session() {
+  local session="$1" target normalized
+  valid_media_session_id "$session" || return 1
+  target="$MEDIA_ROOT/session-$session"
+  normalized="$(realpath -ms -- "$target")"
+  [[ $(dirname -- "$normalized") == "$MEDIA_ROOT" &&
+    $(basename -- "$normalized") == "session-$session" ]] || return 1
+  if [[ -L $target || -f $target ]]; then rm -f -- "$target"
+  elif [[ -d $target ]]; then rm -rf --one-file-system -- "$target"
+  elif [[ -e $target ]]; then return 1
+  fi
+}
+
+cleanup_media_command() {
+  local session="${1:-}"
+  if [[ $session == --all && $# == 1 ]]; then
+    if [[ -L $MEDIA_ROOT ]]; then rm -f -- "$MEDIA_ROOT"
+    elif [[ -d $MEDIA_ROOT ]]; then rm -rf --one-file-system -- "$MEDIA_ROOT"
+    elif [[ -e $MEDIA_ROOT ]]; then return 1
+    fi
+    jq -cn '{ok:true,cleaned:true,all:true}'
+    return
+  fi
+  [[ $# == 1 ]] && safe_remove_media_session "$session" || {
+    json_error "Usage: okomart cleanup-media <session-id|--all>"
+    return 2
+  }
+  jq -cn --arg session "$session" '{ok:true,cleaned:true,session:$session}'
+}
+
+local_screenshot_paths() {
+  local plugin_dir="$1" record path
+  local -a records=() paths=()
+  mapfile -d '' -t records < <(
+    {
+      find -H "$plugin_dir" -mindepth 1 -maxdepth 1 -type f \
+        \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \
+        -o -iname '*.gif' -o -iname '*.bmp' -o -iname '*.webp' \) \
+        -printf '%f/%p\0' 2>/dev/null
+      for path in "$plugin_dir/images" "$plugin_dir/screenshots"; do
+        if [[ -d $path && ! -L $path ]]; then
+          find "$path" -mindepth 1 -maxdepth 1 -type f \
+            \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \
+            -o -iname '*.gif' -o -iname '*.bmp' -o -iname '*.webp' \) \
+            -printf '%f/%p\0' 2>/dev/null
+        fi
+      done
+    } | sort -z -fV
+  )
+  for record in "${records[@]}"; do paths+=("${record#*/}"); done
+  if (( ${#paths[@]} == 0 )); then printf '[]\n'
+  else printf '%s\0' "${paths[@]}" | jq -Rs 'split("\u0000")[:-1]'
+  fi
+}
+
+github_screenshots_json() {
+  local url="$1" revision="$2" parts=() body
+  [[ $revision =~ ^[0-9a-f]{40,64}$ ]] || return 1
+  mapfile -t parts < <(github_repository_parts "$url")
+  (( ${#parts[@]} == 2 )) || return 1
+  ensure_work_root || return 1
+  body="$(mktemp "$WORK_ROOT/github-tree.XXXXXX")" || return 1
+  local endpoint="$GITHUB_API_BASE/repos/${parts[0]}/${parts[1]}/git/trees/$revision?recursive=1"
+  if ! curl --fail --silent --show-error --location \
+      --proto '=https' --proto-redir '=https' --connect-timeout 8 --max-time 25 \
+      --max-filesize $((4 * 1024 * 1024)) --user-agent 'Okomart screenshot discovery' \
+      --header 'Accept: application/vnd.github+json' --output "$body" "$endpoint" \
+      >/dev/null 2>&1 || ! jq -e '.tree | type == "array"' "$body" >/dev/null 2>&1; then
+    rm -f -- "$body"
+    return 1
+  fi
+  jq -c --arg base "$GITHUB_RAW_BASE/${parts[0]}/${parts[1]}/$revision/" '
+    def image: test("\\.(?:jpe?g|png|gif|bmp|webp)$"; "i");
+    def location:
+      (split("/") | length) as $parts
+      | ($parts == 1 or ($parts == 2 and (startswith("images/") or startswith("screenshots/"))));
+    def encoded: split("/") | map(@uri) | join("/");
+    [.tree[] | select(.type == "blob" and (.mode == "100644" or .mode == "100755"))
+      | .path | select(image and location)]
+    | sort_by(ascii_downcase)
+    | map($base + encoded)
+  ' "$body"
+  local rc=$?
+  rm -f -- "$body"
+  return $rc
+}
+
+generic_screenshots_json() {
+  local url="$1" revision="$2" session="$3"
+  ensure_media_root || return 1
+  local existing existing_session
+  shopt -s nullglob
+  for existing in "$MEDIA_ROOT"/session-*; do
+    existing_session="${existing##*/session-}"
+    [[ $existing_session == "$session" ]] || safe_remove_media_session "$existing_session" || true
+  done
+  shopt -u nullglob
+  safe_remove_media_session "$session" || return 1
+  local session_dir="$MEDIA_ROOT/session-$session" repo media commit
+  repo="$session_dir/repository"; media="$session_dir/media"
+  mkdir -m 700 -- "$session_dir" "$media" || return 1
+  if ! timeout --signal=TERM --kill-after=2s 35s git clone --quiet --depth 1 \
+      --filter=blob:none --no-checkout --no-tags --no-recurse-submodules \
+      -- "$url" "$repo" >/dev/null 2>&1; then
+    safe_remove_media_session "$session" || true
+    return 1
+  fi
+  commit="$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)"
+  if [[ -n $revision && $commit != "$revision" ]]; then
+    if ! timeout --signal=TERM --kill-after=2s 25s git -C "$repo" fetch --quiet \
+        --depth 1 --no-tags origin "$revision" >/dev/null 2>&1; then
+      safe_remove_media_session "$session" || true
+      return 1
+    fi
+    commit="$(git -C "$repo" rev-parse FETCH_HEAD 2>/dev/null || true)"
+  fi
+  [[ $commit =~ ^[0-9a-f]{40,64}$ ]] || { safe_remove_media_session "$session" || true; return 1; }
+  local path lower mode output extension count=0
+  local -a tree_paths=() images=()
+  mapfile -d '' -t tree_paths < <(git -C "$repo" ls-tree -rz --name-only "$commit" 2>/dev/null)
+  for path in "${tree_paths[@]}"; do
+    lower="${path,,}"
+    [[ $lower =~ \.(jpg|jpeg|png|gif|bmp|webp)$ ]] || continue
+    [[ $path != */* || $path =~ ^(images|screenshots)/[^/]+$ ]] || continue
+    mode="$(git -C "$repo" ls-tree "$commit" -- "$path" 2>/dev/null | awk 'NR==1 {print $1}')"
+    [[ $mode =~ ^100(644|755)$ ]] || continue
+    extension="${lower##*.}"
+    output="$media/image-$count.$extension"
+    if timeout --signal=TERM --kill-after=2s 20s \
+        git -C "$repo" show "$commit:$path" >"$output" 2>/dev/null &&
+      (( $(stat -c %s -- "$output" 2>/dev/null) <= SCREENSHOT_MAXIMUM_BYTES )); then
+      chmod 600 -- "$output"
+      images+=("$output")
+      count=$((count + 1))
+    else
+      rm -f -- "$output"
+    fi
+  done
+  local images_json='[]'
+  if (( ${#images[@]} > 0 )); then
+    images_json="$(printf '%s\0' "${images[@]}" | jq -Rs 'split("\u0000")[:-1]')"
+  fi
+  jq -cn --arg revision "$commit" --argjson images "$images_json" \
+    '{ok:true,images:$images,revision:$revision}'
+}
+
+screenshots_command() {
+  local descriptor="${1:-}" session="${2:-}"
+  [[ $# == 2 ]] && valid_media_session_id "$session" && jq -e '
+      type == "object" and (.id | type == "string")
+      and ((.sourceUrl // "") | type == "string")
+      and ((.revision // "") | type == "string")
+      and ((.installedPath // "") | type == "string")
+    ' <<<"$descriptor" >/dev/null 2>&1 || {
+    json_error "Usage: okomart screenshots <plugin-descriptor-json> <session-id>"
+    return 2
+  }
+  local id installed_path source_url revision expected images
+  id="$(jq -r '.id' <<<"$descriptor")"
+  installed_path="$(jq -r '.installedPath // ""' <<<"$descriptor")"
+  source_url="$(jq -r '.sourceUrl // ""' <<<"$descriptor")"
+  revision="$(jq -r '.revision // ""' <<<"$descriptor")"
+  if [[ -n $installed_path ]]; then
+    valid_plugin_id "$id" || return 1
+    expected="$PLUGINS_DIR/$id"
+    [[ ( -d $expected || -L $expected ) &&
+      $(realpath -m -- "$expected") == "$installed_path" ]] || return 1
+    images="$(local_screenshot_paths "$installed_path")" || images='[]'
+    jq -cn --argjson images "$images" '{ok:true,images:$images,revision:""}'
+    return
+  fi
+  valid_registry_url "$source_url" || {
+    jq -cn '{ok:false,images:[],error:"The screenshot source URL is invalid."}'
+    return
+  }
+  if github_repository_parts "$source_url" >/dev/null; then
+    if images="$(github_screenshots_json "$source_url" "$revision")"; then
+      jq -cn --argjson images "$images" --arg revision "$revision" \
+        '{ok:true,images:$images,revision:$revision}'
+    else
+      jq -cn '{ok:false,images:[],error:"Screenshot discovery is unavailable."}'
+    fi
+  else
+    generic_screenshots_json "$source_url" "$revision" "$session" ||
+      jq -cn '{ok:false,images:[],error:"Screenshot discovery is unavailable."}'
+  fi
+}
+
+status_text_for() {
+  case "$1" in
+  up-to-date) printf 'Up to date' ;;
+  update-available) printf 'Update available' ;;
+  dirty) printf 'Local changes block automatic updates' ;;
+  diverged) printf 'Local and remote histories have diverged' ;;
+  ahead) printf 'Local checkout is ahead of its remote' ;;
+  no-origin) printf 'Git checkout has no origin remote' ;;
+  fetch-failed) printf 'Could not check the remote for updates' ;;
+  development-link) printf 'Development link; update manually' ;;
+  non-git) printf 'Local folder; update manually' ;;
+  invalid) printf 'Installed manifest is invalid' ;;
+  unchecked) printf 'Remote update status has not been checked' ;;
+  *) printf '%s' "$1" ;;
+  esac
+}
+
+installed_local_json() {
+  local dir="$1" manifest_valid="$2" installed_version="$3"
+  local install_type state origin="" current="" dirty=false
+  if [[ -L $dir ]]; then
+    install_type="development-link"
+    state="development-link"
+  elif ! plugin_owned_git_worktree "$dir"; then
+    install_type="local"
+    state="non-git"
+  else
+    install_type="git"
+    current="$(git -C "$dir" rev-parse HEAD 2>/dev/null || true)"
+    origin="$(git -C "$dir" remote get-url origin 2>/dev/null || true)"
+    [[ -z $(git -C "$dir" status --porcelain 2>/dev/null) ]] || dirty=true
+    if [[ $manifest_valid != true ]]; then state="invalid"
+    elif [[ $dirty == true ]]; then state="dirty"
+    elif [[ -z $origin ]]; then state="no-origin"
+    else state="unchecked"
+    fi
+  fi
+  [[ $manifest_valid == true ]] || state="invalid"
+  jq -cn --arg installType "$install_type" --arg updateState "$state" \
+    --arg statusText "$(status_text_for "$state")" --arg sourceUrl "$origin" \
+    --arg currentCommit "$current" --arg availableCommit "$current" \
+    --arg availableVersion "$installed_version" --argjson dirty "$dirty" '
+    {installType:$installType,updateState:$updateState,statusText:$statusText,
+      sourceUrl:$sourceUrl,currentCommit:$currentCommit,
+      availableCommit:$availableCommit,availableVersion:$availableVersion,
+      versionUpdateAvailable:false,dirty:$dirty,safeUpdate:false}
+  '
+}
+
+plugin_owned_git_worktree() {
+  local dir="$1"
+  local plugin_root worktree_root
+  # Omarchy itself recognizes installed Git plugins only when the plugin root
+  # has a .git directory path. Exact root ownership then excludes ancestor
+  # worktrees, while the directory test excludes linked-worktree .git files.
+  [[ -d $dir && ! -L $dir && -d $dir/.git ]] || return 1
+  plugin_root="$(realpath -m -- "$dir")"
+  worktree_root="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" ||
+    return 1
+  worktree_root="$(realpath -m -- "$worktree_root")"
+  [[ $worktree_root == "$plugin_root" ]]
+}
+
+installed_plugin_timestamp() {
+  local dir="$1"
+  local repository="$dir"
+  local commit
+  if [[ -L $dir ]]; then
+    repository="$(realpath -m -- "$dir")"
+  fi
+  if ! plugin_owned_git_worktree "$repository"; then
+    printf '0\n'
+    return
+  fi
+  commit="$(git -C "$repository" rev-parse HEAD 2>/dev/null)" || {
+    printf '0\n'
+    return
+  }
+  git_commit_timestamp "$repository" "$commit" || printf '0\n'
+}
+
+installed_update_json() {
+  local dir="$1"
+  local manifest_valid="$2"
+  local installed_version="$3"
+  local install_type state status safe=false origin="" current="" available=""
+  local available_version="" relation="" dirty=false version_update=false
+
+  if [[ -L $dir ]]; then
+    install_type="development-link"
+    state="development-link"
+  elif ! plugin_owned_git_worktree "$dir"; then
+    install_type="local"
+    state="non-git"
+  else
+    install_type="git"
+    current="$(git -C "$dir" rev-parse HEAD 2>/dev/null || true)"
+    [[ -z $(git -C "$dir" status --porcelain 2>/dev/null) ]] || dirty=true
+    origin="$(git -C "$dir" remote get-url origin 2>/dev/null || true)"
+    if [[ -z $origin ]]; then
+      state="no-origin"
+    elif ! git_with_timeout -C "$dir" fetch --quiet origin HEAD \
+      >/dev/null 2>&1; then
+      state="fetch-failed"
+    else
+      available="$(git -C "$dir" rev-parse FETCH_HEAD 2>/dev/null || true)"
+      available_version="$(
+        git -C "$dir" show FETCH_HEAD:manifest.json 2>/dev/null |
+          jq -r 'if .version == null then "" else (.version|tostring) end' 2>/dev/null ||
+          true
+      )"
+      if version_is_higher "$available_version" "$installed_version"; then
+        version_update=true
+      fi
+      if [[ $current == "$available" ]]; then
+        relation="equal"
+      elif git -C "$dir" merge-base --is-ancestor "$current" "$available" \
+        >/dev/null 2>&1; then
+        relation="behind"
+      elif git -C "$dir" merge-base --is-ancestor "$available" "$current" \
+        >/dev/null 2>&1; then
+        relation="ahead"
+      else
+        relation="diverged"
+      fi
+
+      if [[ $manifest_valid != true ]]; then
+        state="invalid"
+      elif [[ $dirty == true ]]; then
+        state="dirty"
+      else
+        case "$relation" in
+        equal) state="up-to-date" ;;
+        behind)
+          if [[ $version_update == true ]]; then
+            state="update-available"
+            safe=true
+          else
+            state="up-to-date"
+          fi
+          ;;
+        ahead) state="ahead" ;;
+        *) state="diverged" ;;
+        esac
+      fi
+    fi
+  fi
+
+  if [[ $manifest_valid != true ]]; then
+    state="invalid"
+    safe=false
+  fi
+
+  status="$(status_text_for "$state")"
+  jq -cn \
+    --arg installType "$install_type" \
+    --arg updateState "$state" \
+    --arg statusText "$status" \
+    --arg sourceUrl "$origin" \
+    --arg currentCommit "$current" \
+    --arg availableCommit "$available" \
+    --arg availableVersion "$available_version" \
+    --argjson dirty "$dirty" \
+    --argjson versionUpdateAvailable "$version_update" \
+    --argjson safeUpdate "$safe" \
+    '{
+      installType:$installType,
+      updateState:$updateState,
+      statusText:$statusText,
+      sourceUrl:$sourceUrl,
+      currentCommit:$currentCommit,
+      availableCommit:$availableCommit,
+      availableVersion:$availableVersion,
+      versionUpdateAvailable:$versionUpdateAvailable,
+      dirty:$dirty,
+      safeUpdate:$safeUpdate
+    }'
+}
+
+build_installed_index() {
+  local output="$1"
+  local remote_checks="${2:-false}"
+  local lines
+  lines="$(mktemp "$STATE_ROOT/.installed.XXXXXX")" || return 1
+  : >"$lines"
+
+  if [[ ! -d $PLUGINS_DIR ]]; then
+    printf '[]\n' >"$output"
+    rm -f -- "$lines"
+    return 0
+  fi
+
+  local dir folder manifest_valid metadata id update installed_version
+  local validation_error updated_at
+  shopt -s nullglob
+  for dir in "$PLUGINS_DIR"/*; do
+    [[ -d $dir || -L $dir ]] || continue
+    folder="$(basename -- "$dir")"
+    [[ $folder != .* ]] || continue
+
+    manifest_valid=false
+    validation_error=""
+    if validate_manifest "$dir"; then
+      manifest_valid=true
+      metadata="$(manifest_metadata "$dir/manifest.json")"
+      id="$(jq -r '.id' <<<"$metadata")"
+    else
+      validation_error="$VALIDATION_ERROR"
+      id="$folder"
+      metadata="$(jq -cn --arg id "$id" --arg name "$folder" '{
+        schemaVersion:1,id:$id,name:$name,description:"",author:"",version:"",
+        license:null,kinds:[],entryPoints:{}
+      }')"
+    fi
+
+    valid_plugin_id "$id" || id="$folder"
+    [[ $id != omarchy.* && $folder != omarchy.* ]] || continue
+    [[ $id != "$OKOMART_ID" && $folder != "$OKOMART_ID" ]] || continue
+
+    installed_version="$(jq -r '.version' <<<"$metadata")"
+    updated_at="$(installed_plugin_timestamp "$dir")"
+    if [[ $remote_checks == true ]]; then
+      update="$(installed_update_json "$dir" "$manifest_valid" "$installed_version")"
+    else
+      update="$(installed_local_json "$dir" "$manifest_valid" "$installed_version")"
+    fi
+
+    jq -c \
+      --argjson update "$update" \
+      --arg installedVersion "$installed_version" \
+      --arg installedPath "$(realpath -m -- "$dir")" \
+      --arg validationError "$validation_error" \
+      --argjson updatedAt "$updated_at" \
+      '. + $update + {
+        installed:true,
+        installedVersion:$installedVersion,
+        installedPath:$installedPath,
+        updatedAt:$updatedAt,
+        validationError:$validationError
+      }' <<<"$metadata" >>"$lines"
+  done
+  shopt -u nullglob
+
+  jq -s '.' "$lines" >"$output"
+  local rc=$?
+  rm -f -- "$lines"
+  return $rc
+}
+
+read_plugin_enablement() {
+  local output="$1" raw
+  raw="$(
+    timeout --signal=TERM --kill-after=1s 3s \
+      omarchy plugin list --json 2>/dev/null
+  )" || return 1
+  jq -ce '
+    select(type == "array")
+    | select(all(.[];
+        type == "object"
+        and (.id | type == "string"
+          and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")
+          and (contains("..") | not))
+        and (.enabled | type == "boolean")
+        and (.canDisable | type == "boolean")))
+    | select(([.[].id] | length) == ([.[].id] | unique | length))
+    | map({id,enabled,canDisable})
+  ' <<<"$raw" >"$output"
+}
+
+merge_plugins_json() {
+  local catalog="$1"
+  local installed="$2"
+  local enablement="$3"
+  local output="$4"
+  jq -n \
+    --slurpfile catalog "$catalog" \
+    --slurpfile installed "$installed" \
+    --slurpfile enablement "$enablement" '
+    ($catalog[0].entries // []) as $c |
+    (($installed[0] // []) | map(
+      . as $plugin
+      | ([($enablement[0] // [])[] | select(.id == $plugin.id)][0] // null) as $state
+      | . + {
+          enabled:(if $state == null then null else $state.enabled end),
+          canDisable:(if $state == null then false else $state.canDisable end)
+        }
+    )) as $i |
+    (
+      [
+        $c[] as $available |
+        ([$i[] | select(.id == $available.id)][0] // null) as $local |
+        if $local == null then
+          $available + {
+            catalog:true,installed:false,
+            catalogCommit:($available.revision // ""),
+            enabled:null,canDisable:false,
+            versionUpdateAvailable:false,
+            safeUpdate:false
+          }
+        else
+          ($available + $local) + {
+            name:$available.name,
+            description:$available.description,
+            author:$available.author,
+            version:$available.version,
+            sourceUrl:$available.sourceUrl,
+            catalogCommit:($available.revision // ""),
+            updatedAt:([
+              ($available.updatedAt // 0),
+              ($local.updatedAt // 0)
+            ] | max),
+            catalog:true,installed:true,
+            installedVersion:$local.installedVersion,
+            installedSourceUrl:$local.sourceUrl,
+            availableVersion:(
+              if ($local.availableVersion // "") != ""
+              then $local.availableVersion else $available.version end
+            )
+          }
+        end
+      ]
+      +
+      [
+        $i[] as $local |
+        select(([$c[].id] | index($local.id)) == null) |
+        $local + {
+          catalog:false,installed:true,
+          installedSourceUrl:$local.sourceUrl,
+          availableVersion:(
+            if ($local.availableVersion // "") != ""
+            then $local.availableVersion else $local.installedVersion end
+          )
+        }
+      ]
+    )
+    | sort_by(-(.listingValidatedAt // .updatedAt // 0),
+        (.name | ascii_downcase), .id)
+  ' >"$output"
+}
+
+self_update_json() {
+  local source_dir="$1"
+  local development_link="${2:-false}"
+  local installed_version="" available_version="" current="" available=""
+  local state="non-git" status safe=false dirty=false
+  local version_update=false
+  local relation="" app_changed=false
+  local -a runtime_paths=(manifest.json '*.qml' '*.js' bin assets)
+
+  if [[ -f $source_dir/manifest.json ]]; then
+    installed_version="$(
+      jq -r 'if .version == null then "" else (.version|tostring) end' \
+        "$source_dir/manifest.json" 2>/dev/null || true
+    )"
+  fi
+
+  if [[ $development_link == true ]]; then
+    state="development-link"
+  elif plugin_owned_git_worktree "$source_dir"; then
+    current="$(git -C "$source_dir" rev-parse HEAD 2>/dev/null || true)"
+    [[ -z $(git -C "$source_dir" status --porcelain -- \
+      "${runtime_paths[@]}" 2>/dev/null) ]] || dirty=true
+    if ! git -C "$source_dir" remote get-url origin >/dev/null 2>&1; then
+      state="no-origin"
+    elif ! git_with_timeout -C "$source_dir" fetch --quiet origin HEAD \
+      >/dev/null 2>&1; then
+      state="fetch-failed"
+    else
+      available="$(git -C "$source_dir" rev-parse FETCH_HEAD 2>/dev/null || true)"
+      available_version="$(
+        git -C "$source_dir" show FETCH_HEAD:manifest.json 2>/dev/null |
+          jq -r 'if .version == null then "" else (.version|tostring) end' 2>/dev/null ||
+          true
+      )"
+      if version_is_higher "$available_version" "$installed_version"; then
+        version_update=true
+      fi
+      if [[ $current == "$available" ]]; then
+        relation="equal"
+      elif git -C "$source_dir" merge-base --is-ancestor "$current" "$available" \
+        >/dev/null 2>&1; then
+        relation="behind"
+      elif git -C "$source_dir" merge-base --is-ancestor "$available" "$current" \
+        >/dev/null 2>&1; then
+        relation="ahead"
+      else
+        relation="diverged"
+      fi
+
+      if [[ $relation == "behind" ]] &&
+        ! git -C "$source_dir" diff --quiet "$current" "$available" -- \
+          "${runtime_paths[@]}"; then
+        app_changed=true
+      fi
+
+      if [[ $dirty == true ]]; then
+        state="dirty"
+      else
+        case "$relation" in
+        equal) state="up-to-date" ;;
+        behind)
+          if [[ $app_changed == true && $version_update == true ]]; then
+            state="update-available"
+            safe=true
+          else
+            state="catalog-current"
+          fi
+          ;;
+        ahead) state="ahead" ;;
+        *) state="diverged" ;;
+        esac
+      fi
+    fi
+  fi
+
+  if [[ $state == "catalog-current" ]]; then
+    status="Okomart is up to date"
+  else
+    status="$(status_text_for "$state")"
+  fi
+  [[ -n $available_version ]] || available_version="$installed_version"
+
+  jq -cn \
+    --arg installedVersion "$installed_version" \
+    --arg availableVersion "$available_version" \
+    --arg currentCommit "$current" \
+    --arg availableCommit "$available" \
+    --arg updateState "$state" \
+    --arg statusText "$status" \
+    --argjson versionUpdateAvailable "$version_update" \
+    --argjson safeUpdate "$safe" \
+    '{
+      installedVersion:$installedVersion,
+      availableVersion:$availableVersion,
+      currentCommit:$currentCommit,
+      availableCommit:$availableCommit,
+      updateState:$updateState,
+      statusText:$statusText,
+      versionUpdateAvailable:$versionUpdateAvailable,
+      safeUpdate:$safeUpdate
+    }'
+}
+
+self_local_json() {
+  local source_dir="$1" development_link="${2:-false}"
+  local installed_version="" current="" state="non-git" dirty=false
+  if [[ -f $source_dir/manifest.json ]]; then
+    installed_version="$(jq -r 'if .version == null then "" else (.version|tostring) end' \
+      "$source_dir/manifest.json" 2>/dev/null || true)"
+  fi
+  if [[ $development_link == true ]]; then state="development-link"
+  elif plugin_owned_git_worktree "$source_dir"; then
+    current="$(git -C "$source_dir" rev-parse HEAD 2>/dev/null || true)"
+    [[ -z $(git -C "$source_dir" status --porcelain -- manifest.json '*.qml' '*.js' bin assets 2>/dev/null) ]] || dirty=true
+    if [[ $dirty == true ]]; then state="dirty"
+    elif ! git -C "$source_dir" remote get-url origin >/dev/null 2>&1; then state="no-origin"
+    else state="unchecked"
+    fi
+  fi
+  jq -cn --arg installedVersion "$installed_version" --arg currentCommit "$current" \
+    --arg updateState "$state" --arg statusText "$(status_text_for "$state")" '
+    {installedVersion:$installedVersion,availableVersion:$installedVersion,
+      currentCommit:$currentCommit,availableCommit:$currentCommit,
+      updateState:$updateState,statusText:$statusText,
+      versionUpdateAvailable:false,safeUpdate:false}
+  '
+}
+
+snapshot_payload() {
+  local source_arg="$1" remote_checks="${2:-false}"
+  local source_dir source_link_candidate source_is_development_link=false
+  source_link_candidate="$(realpath -ms -- "$source_arg")"
+  [[ -L $source_link_candidate ]] && source_is_development_link=true
+  source_dir="$(realpath -m -- "$source_arg")"
+  [[ -d $source_dir ]] || {
+    json_error "Okomart source directory does not exist"
+    return 2
+  }
+
+  local catalog active generation pending catalog_file installed enablement plugins self
+  catalog="$(read_catalog)"
+  active="$(jq -c '.active // {generation:"",entries:[],errors:[],checkedAt:""}' <<<"$catalog")"
+  generation="$(jq -r '.generation // ""' <<<"$active")"
+  pending="$(jq -c '.pending | if . == null then null else {generation,ready} end' <<<"$catalog")"
+  catalog_file="$(mktemp "$STATE_ROOT/.active-catalog.XXXXXX")" || return 1
+  installed="$(mktemp "$STATE_ROOT/.installed-index.XXXXXX")" || { rm -f -- "$catalog_file"; return 1; }
+  enablement="$(mktemp "$STATE_ROOT/.plugin-enablement.XXXXXX")" || {
+    rm -f -- "$catalog_file" "$installed"
+    return 1
+  }
+  plugins="$(mktemp "$STATE_ROOT/.plugins.XXXXXX")" || {
+    rm -f -- "$catalog_file" "$installed" "$enablement"
+    return 1
+  }
+  printf '%s\n' "$active" >"$catalog_file"
+  build_installed_index "$installed" "$remote_checks" || printf '[]\n' >"$installed"
+  read_plugin_enablement "$enablement" || printf '[]\n' >"$enablement"
+  merge_plugins_json "$catalog_file" "$installed" "$enablement" "$plugins" || printf '[]\n' >"$plugins"
+  if [[ $remote_checks == true ]]; then
+    self="$(self_update_json "$source_dir" "$source_is_development_link")"
+  else
+    self="$(self_local_json "$source_dir" "$source_is_development_link")"
+  fi
+  jq -cn --argjson ok "$([[ -n $generation ]] && printf true || printf false)" \
+    --arg generation "$generation" --argjson pending "$pending" --argjson self "$self" \
+    --slurpfile active "$catalog_file" --slurpfile plugins "$plugins" \
+    --argjson remoteChecked "$remote_checks" '
+    {ok:$ok,localOnly:($remoteChecked|not),remoteChecked:$remoteChecked,
+      error:(if $ok then "" else "No active Okomart catalog is cached yet." end),
+      snapshotId:$generation,activeGeneration:$generation,
+      catalogCommit:$generation,pending:$pending,
+      checkedAt:($active[0].checkedAt // ""),catalogErrors:($active[0].errors // []),
+      self:$self,plugins:($plugins[0] // [])}
+  '
+  local rc=$?
+  rm -f -- "$catalog_file" "$installed" "$enablement" "$plugins"
+  return $rc
+}
+
+snapshot_command() {
+  local source_arg="${1:-}"
+  [[ -n $source_arg && $# == 1 ]] || {
+    json_error "Usage: okomart snapshot <source-dir>"
+    return 2
+  }
+  startup_cache_cleanup || {
+    json_error "Could not safely clean Okomart's startup cache"
+    return 1
+  }
+  cleanup_legacy_catalog_data || {
+    json_error "Could not safely remove legacy Okomart catalog data"
+    return 1
+  }
+  snapshot_payload "$source_arg" false
+}
+
+check_updates_command() {
+  local source_arg="${1:-}"
+  [[ -n $source_arg && $# == 1 ]] || {
+    json_error "Usage: okomart check-updates <source-dir>"
+    return 2
+  }
+  local before after output
+  before="$(jq -r '.active.generation // ""' <<<"$(read_catalog)")"
+  output="$(snapshot_payload "$source_arg" true)" || return
+  after="$(jq -r '.active.generation // ""' <<<"$(read_catalog)")"
+  if [[ -z $before || $before != "$after" ]]; then
+    jq -c '.ok=false | .stale=true | .error="The active catalog changed during the update check."' <<<"$output"
+    return 1
+  fi
+  printf '%s\n' "$output"
+}
+
+cached_command() {
+  snapshot_command "$@"
+}
+
+default_action_status() {
+  jq -cn '{
+    ok:true,running:false,action:"",actionId:"",pid:null,
+    startedAt:"",finishedAt:"",message:"No Okomart action has run.",
+    results:[],selfUpdated:false,shellRestarted:false,
+    runtimeReloaded:false,resummoned:false,acknowledged:true
+  }'
+}
+
+status_command() {
+  if [[ ! -f $ACTION_STATE ]] || ! jq -e 'type == "object"' "$ACTION_STATE" \
+    >/dev/null 2>&1; then
+    default_action_status
+    return
+  fi
+
+  local status
+  status="$(cat -- "$ACTION_STATE")"
+  if ! jq -e '.running == true' <<<"$status" >/dev/null 2>&1; then
+    printf '%s\n' "$status"
+    return
+  fi
+
+  # A live action holds this lock from before its running record is written
+  # until after its terminal record is durable. Acquiring it here therefore
+  # proves that a running record was abandoned. Re-read under the lock so a
+  # newly started or just-finished worker can never be overwritten.
+  if [[ -L $ACTION_LOCK || -d $ACTION_LOCK ]]; then
+    printf '%s\n' "$status"
+    return
+  fi
+  if ! exec 7>>"$ACTION_LOCK"; then
+    printf '%s\n' "$status"
+    return
+  fi
+  if ! flock -n 7; then
+    exec 7>&-
+    printf '%s\n' "$status"
+    return
+  fi
+
+  if [[ -f $ACTION_STATE ]] && jq -e 'type == "object"' "$ACTION_STATE" \
+    >/dev/null 2>&1; then
+    status="$(cat -- "$ACTION_STATE")"
+    if jq -e '.running == true' <<<"$status" >/dev/null 2>&1; then
+      local finished terminal
+      finished="$(utc_now)"
+      terminal="$(jq -c --arg finishedAt "$finished" '
+        .ok=false
+        | .running=false
+        | .pid=null
+        | .finishedAt=$finishedAt
+        | .message="The Okomart action worker stopped before completing."
+        | .results = ((.results // []) + [{
+            id:"worker",
+            operation:(.action // "action"),
+            ok:false,
+            output:"The Okomart action worker stopped before completing. Refresh and review plugin state before trying again."
+          }])
+        | .abandoned=true
+        | .acknowledged=false
+      ' <<<"$status")"
+      if write_action_status "$terminal"; then
+        status="$terminal"
+      fi
+    fi
+  else
+    status="$(default_action_status)"
+  fi
+  exec 7>&-
+  printf '%s\n' "$status"
+}
+
+ack_command() {
+  local action_id="${1:-}"
+  [[ -n $action_id && $# == 1 ]] || {
+    json_error "Usage: okomart ack <action-id>"
+    return 2
+  }
+  if [[ -L $ACTION_LOCK || -d $ACTION_LOCK ]]; then
+    json_error "The Okomart action lock path is unsafe"
+    return 1
+  fi
+  exec 9>>"$ACTION_LOCK" || {
+    json_error "Could not open the Okomart action lock"
+    return 1
+  }
+  if ! flock -n 9; then
+    jq -cn --arg actionId "$action_id" \
+      '{ok:false,acknowledged:false,busy:true,actionId:$actionId,
+        error:"Another Okomart action is running."}'
+    exec 9>&-
+    return 1
+  fi
+
+  if [[ ! -f $ACTION_STATE ]] || ! jq -e 'type == "object"' "$ACTION_STATE" \
+    >/dev/null 2>&1; then
+    jq -cn '{ok:true,acknowledged:false,reason:"no-action"}'
+    exec 9>&-
+    return
+  fi
+
+  local status
+  status="$(cat -- "$ACTION_STATE")"
+  if ! jq -e --arg actionId "$action_id" \
+    '.actionId == $actionId and .running == false' <<<"$status" >/dev/null; then
+    jq -cn --arg actionId "$action_id" \
+      '{ok:false,acknowledged:false,actionId:$actionId,
+        error:"Action is missing, still running, or no longer current."}'
+    exec 9>&-
+    return 1
+  fi
+  status="$(jq -c '.acknowledged=true' <<<"$status")"
+  if ! write_action_status "$status"; then
+    json_error "Could not persist action acknowledgement"
+    exec 9>&-
+    return 1
+  fi
+  exec 9>&-
+  jq -cn --arg actionId "$action_id" \
+    '{ok:true,acknowledged:true,actionId:$actionId}'
+}
+
+write_action_status() {
+  atomic_write "$ACTION_STATE" "$1"
+}
+
+reconcile_unpersisted_action() {
+  local action_id="$1"
+  [[ -f $ACTION_STATE && ! -L $ACTION_STATE ]] || return 0
+  if jq -e --arg actionId "$action_id" \
+    '.actionId == $actionId and .running == true' "$ACTION_STATE" \
+    >/dev/null 2>&1; then
+    # The worker holds ACTION_LOCK while calling this. Removing its own stale
+    # running record makes `status` fall back to a terminal idle state instead
+    # of polling forever when no further atomic write is possible.
+    rm -f -- "$ACTION_STATE"
+  fi
+}
+
+append_action_result() {
+  local status="$1"
+  local id="$2"
+  local operation="$3"
+  local succeeded="$4"
+  local output_file="$5"
+  jq -c \
+    --arg id "$id" \
+    --arg operation "$operation" \
+    --argjson ok "$succeeded" \
+    --rawfile commandOutput "$output_file" \
+    '.results += [{
+      id:$id,
+      operation:$operation,
+      ok:$ok,
+      output:($commandOutput | if length > 12000 then .[-12000:] else . end)
+    }]' <<<"$status"
+}
+
+append_action_message() {
+  local status="$1"
+  local id="$2"
+  local operation="$3"
+  local succeeded="$4"
+  local message="$5"
+  jq -c \
+    --arg id "$id" \
+    --arg operation "$operation" \
+    --argjson ok "$succeeded" \
+    --arg commandOutput "$message" \
+    '.results += [{
+      id:$id,
+      operation:$operation,
+      ok:$ok,
+      output:$commandOutput
+    }]' <<<"$status"
+}
+
+run_plugin_action() {
+  local status="$1"
+  local operation="$2"
+  local id="$3"
+  shift 3
+  local output_file rc=0 succeeded=true
+  output_file="$(mktemp "$STATE_ROOT/.action-output.XXXXXX")" || return 1
+  timeout --signal=TERM --kill-after=5s 300s \
+    omarchy "$@" >"$output_file" 2>&1 || rc=$?
+  if (( rc == 124 || rc == 137 )); then
+    printf '\nOkomart timed out this %s after 300 seconds. The command may have partially changed plugin state; refresh and review it before retrying.\n' \
+      "$operation" >>"$output_file"
+  fi
+  (( rc == 0 )) || succeeded=false
+  status="$(append_action_result "$status" "$id" "$operation" "$succeeded" "$output_file")"
+  rm -f -- "$output_file"
+  printf '%s\n' "$status"
+  return $rc
+}
+
+PREFLIGHT_ERROR=""
+PREFLIGHT_URL=""
+preflight_install() {
+  local id="$1"
+  local snapshot_file="$2"
+  local url expected remote_head expected_metadata live_metadata temp_record temp_dir
+  local -a fields=()
+  PREFLIGHT_ERROR=""
+  PREFLIGHT_URL=""
+
+  mapfile -t fields < <(
+    jq -r --arg id "$id" '
+      [.plugins[] | select(
+        .id == $id and .catalog == true and .installed == false
+      )][0]
+      | if . == null then "", "" else
+          (.sourceUrl // ""), (.catalogCommit // .availableCommit // "")
+        end
+    ' "$snapshot_file" 2>/dev/null
+  )
+  url="${fields[0]:-}"
+  expected="${fields[1]:-}"
+  if [[ -z $url ]]; then
+    PREFLIGHT_ERROR="Plugin is not an installable entry in the confirmed snapshot."
+    return 1
+  fi
+
+  if github_repository_parts "$url" >/dev/null; then
+    expected_metadata="$(jq -c --arg id "$id" '
+      [.plugins[] | select(.id == $id and .catalog == true)][0]
+      | {schemaVersion,id,name,description,author,version,license,kinds,entryPoints}
+    ' "$snapshot_file" 2>/dev/null)"
+    temp_dir="$(mktemp -d "$STATE_ROOT/.install-preflight.XXXXXX")" || {
+      PREFLIGHT_ERROR="Could not prepare the install preflight."
+      return 1
+    }
+    fetch_github_manifest_record 0 "$url" "$temp_dir"
+    temp_record="$temp_dir/result-0.json"
+    if [[ ! -f $temp_record ]] || ! jq -e '.ok == true' "$temp_record" >/dev/null 2>&1 ||
+      ! validate_remote_catalog_manifest "$temp_dir/manifest-0.json"; then
+      rm -rf --one-file-system -- "$temp_dir"
+      PREFLIGHT_ERROR="Could not re-check the plugin manifest before installation."
+      return 1
+    fi
+    live_metadata="$(manifest_metadata "$temp_dir/manifest-0.json")"
+    rm -rf --one-file-system -- "$temp_dir"
+    if [[ $live_metadata != "$expected_metadata" ]]; then
+      PREFLIGHT_ERROR="The plugin manifest changed after confirmation. Refresh and review it again."
+      return 1
+    fi
+    remote_head="$(
+      git_with_timeout ls-remote --exit-code -- "$url" HEAD 2>/dev/null |
+        awk 'NR == 1 { print $1 }'
+    )"
+    if [[ ! $remote_head =~ ^[0-9a-f]{40,64}$ ]]; then
+      PREFLIGHT_ERROR="Could not verify the plugin repository HEAD before installation."
+      return 1
+    fi
+    PREFLIGHT_URL="$url"
+    return
+  fi
+
+  if [[ ! $expected =~ ^[0-9a-f]{40,64}$ ]]; then
+    PREFLIGHT_ERROR="The generic-host catalog revision is unavailable."
+    return 1
+  fi
+
+  remote_head="$(
+    git_with_timeout ls-remote --exit-code -- "$url" HEAD 2>/dev/null |
+      awk 'NR == 1 { print $1 }'
+  )"
+  if [[ ! $remote_head =~ ^[0-9a-f]{40,64}$ ]]; then
+    PREFLIGHT_ERROR="Could not verify the plugin repository HEAD."
+    return 1
+  fi
+  if [[ $remote_head != "$expected" ]]; then
+    PREFLIGHT_ERROR="The plugin repository changed after confirmation. Refresh and review it again."
+    return 1
+  fi
+  PREFLIGHT_URL="$url"
+}
+
+preflight_remove() {
+  local id="$1"
+  local snapshot_file="$2"
+  local expected_path expected_type expected_commit expected_version
+  local live_path live_type live_commit live_id live_version
+  local -a fields=()
+  PREFLIGHT_ERROR=""
+
+  mapfile -t fields < <(
+    jq -r --arg id "$id" '
+      [.plugins[] | select(.id == $id and .installed == true)][0]
+      | if . == null then "", "", "", "" else
+          (.installedPath // ""),
+          (.installType // ""),
+          (.currentCommit // ""),
+          (.installedVersion // "")
+        end
+    ' "$snapshot_file" 2>/dev/null
+  )
+  expected_path="${fields[0]:-}"
+  expected_type="${fields[1]:-}"
+  expected_commit="${fields[2]:-}"
+  expected_version="${fields[3]:-}"
+  if [[ -z $expected_path || -z $expected_type ]]; then
+    PREFLIGHT_ERROR="Plugin is not an installed entry in the confirmed snapshot."
+    return 1
+  fi
+
+  local target="$PLUGINS_DIR/$id"
+  if [[ ! -e $target && ! -L $target ]]; then
+    PREFLIGHT_ERROR="The installed plugin changed after confirmation."
+    return 1
+  fi
+  live_path="$(realpath -m -- "$target")"
+  if [[ -L $target ]]; then
+    live_type="development-link"
+  elif plugin_owned_git_worktree "$target"; then
+    live_type="git"
+  else
+    live_type="local"
+  fi
+  if [[ $live_path != "$expected_path" || $live_type != "$expected_type" ]]; then
+    PREFLIGHT_ERROR="The installed plugin changed after confirmation. Refresh and review it again."
+    return 1
+  fi
+
+  if [[ $live_type == "git" ]]; then
+    live_commit="$(git -C "$target" rev-parse HEAD 2>/dev/null || true)"
+    if [[ ! $expected_commit =~ ^[0-9a-f]{40,64}$ ||
+      $live_commit != "$expected_commit" ||
+      -n $(git -C "$target" status --porcelain 2>/dev/null) ]]; then
+      PREFLIGHT_ERROR="The installed Git checkout changed after confirmation."
+      return 1
+    fi
+  elif [[ -n $expected_version ]]; then
+    live_id="$(
+      jq -r 'if .id == null then "" else (.id|tostring) end' \
+        "$target/manifest.json" 2>/dev/null || true
+    )"
+    live_version="$(
+      jq -r 'if .version == null then "" else (.version|tostring) end' \
+        "$target/manifest.json" 2>/dev/null || true
+    )"
+    if [[ $live_id != "$id" || $live_version != "$expected_version" ]]; then
+      PREFLIGHT_ERROR="The installed plugin manifest changed after confirmation."
+      return 1
+    fi
+  fi
+}
+
+plugin_enablement_record() {
+  local id="$1" records record_file
+  record_file="$(mktemp "$STATE_ROOT/.plugin-enablement-check.XXXXXX")" || return 1
+  if ! read_plugin_enablement "$record_file"; then
+    rm -f -- "$record_file"
+    return 1
+  fi
+  records="$(jq -ce --arg id "$id" '
+    [.[] | select(.id == $id)][0] | select(. != null)
+  ' "$record_file" 2>/dev/null)" || {
+    rm -f -- "$record_file"
+    return 1
+  }
+  rm -f -- "$record_file"
+  printf '%s\n' "$records"
+}
+
+preflight_enablement() {
+  local operation="$1"
+  local id="$2"
+  local snapshot_file="$3"
+  local expected_path expected_enabled expected_can_disable target live live_enabled
+  local -a fields=()
+  PREFLIGHT_ERROR=""
+
+  mapfile -t fields < <(
+    jq -r --arg id "$id" '
+      [.plugins[] | select(.id == $id and .installed == true)][0]
+      | if . == null then "", "null", "false" else
+          (.installedPath // ""),
+          (if (.enabled | type) == "boolean" then
+            (.enabled | tostring) else "null" end),
+          (if .canDisable == true then "true" else "false" end)
+        end
+    ' "$snapshot_file" 2>/dev/null
+  )
+  expected_path="${fields[0]:-}"
+  expected_enabled="${fields[1]:-null}"
+  expected_can_disable="${fields[2]:-false}"
+  if [[ -z $expected_path ]]; then
+    PREFLIGHT_ERROR="Plugin is not installed in the confirmed snapshot."
+    return 1
+  fi
+  if [[ $operation == enable && $expected_enabled != false ]]; then
+    PREFLIGHT_ERROR="Plugin is no longer disabled. Refresh and review its state."
+    return 1
+  fi
+  if [[ $operation == disable && $expected_enabled != true ]]; then
+    PREFLIGHT_ERROR="Plugin is no longer enabled. Refresh and review its state."
+    return 1
+  fi
+  if [[ $operation == disable && $expected_can_disable != true ]]; then
+    PREFLIGHT_ERROR="This plugin cannot be disabled; enable a replacement bar instead."
+    return 1
+  fi
+
+  target="$PLUGINS_DIR/$id"
+  if [[ ( ! -e $target && ! -L $target ) ||
+    $(realpath -m -- "$target") != "$expected_path" ]]; then
+    PREFLIGHT_ERROR="The installed plugin changed after confirmation."
+    return 1
+  fi
+  live="$(plugin_enablement_record "$id")" || {
+    PREFLIGHT_ERROR="Could not verify the plugin's current enabled state."
+    return 1
+  }
+  live_enabled="$(jq -r '.enabled' <<<"$live")"
+  if [[ $live_enabled != "$expected_enabled" ]]; then
+    PREFLIGHT_ERROR="The plugin's enabled state changed after confirmation."
+    return 1
+  fi
+  if [[ $operation == disable ]] &&
+    ! jq -e '.canDisable == true' <<<"$live" >/dev/null 2>&1; then
+    PREFLIGHT_ERROR="This plugin cannot be disabled; enable a replacement bar instead."
+    return 1
+  fi
+}
+
+preflight_update() {
+  local id="$1"
+  local snapshot_file="$2"
+  local source_dir="$3"
+  local expected_current expected_available expected_origin expected_path
+  local target live_current live_available live_origin
+  local -a fields=()
+  local -a runtime_paths=(manifest.json '*.qml' '*.js' bin assets)
+  PREFLIGHT_ERROR=""
+
+  if [[ $id == "$OKOMART_ID" ]]; then
+    mapfile -t fields < <(
+      jq -r '(.self.currentCommit // ""), (.self.availableCommit // "")' \
+        "$snapshot_file" 2>/dev/null
+    )
+    expected_current="${fields[0]:-}"
+    expected_available="${fields[1]:-}"
+    expected_origin=""
+    expected_path=""
+    target="$source_dir"
+    if [[ -n $(git -C "$target" status --porcelain -- \
+      "${runtime_paths[@]}" 2>/dev/null) ]]; then
+      PREFLIGHT_ERROR="Okomart application files changed after confirmation."
+      return 1
+    fi
+  else
+    mapfile -t fields < <(
+      jq -r --arg id "$id" '
+        [.plugins[] | select(
+          .id == $id and .installed == true and .safeUpdate == true
+        )][0]
+        | if . == null then "", "", "", "" else
+            (.currentCommit // ""),
+            (.availableCommit // ""),
+            (.installedSourceUrl // .sourceUrl // ""),
+            (.installedPath // "")
+          end
+      ' "$snapshot_file" 2>/dev/null
+    )
+    expected_current="${fields[0]:-}"
+    expected_available="${fields[1]:-}"
+    expected_origin="${fields[2]:-}"
+    expected_path="${fields[3]:-}"
+    target="$PLUGINS_DIR/$id"
+    if [[ -z $expected_path || $(realpath -m -- "$target") != "$expected_path" ||
+      -L $target ]]; then
+      PREFLIGHT_ERROR="The installed plugin changed after confirmation."
+      return 1
+    fi
+    if [[ -n $(git -C "$target" status --porcelain 2>/dev/null) ]]; then
+      PREFLIGHT_ERROR="The installed plugin has local changes made after confirmation."
+      return 1
+    fi
+    live_origin="$(git -C "$target" remote get-url origin 2>/dev/null || true)"
+    if [[ -z $expected_origin || $live_origin != "$expected_origin" ]]; then
+      PREFLIGHT_ERROR="The installed plugin origin changed after confirmation."
+      return 1
+    fi
+  fi
+
+  if [[ ! $expected_current =~ ^[0-9a-f]{40,64}$ ||
+    ! $expected_available =~ ^[0-9a-f]{40,64}$ ||
+    ! -d $target || -L $target ]] ||
+    ! plugin_owned_git_worktree "$target"; then
+    PREFLIGHT_ERROR="The confirmed update metadata is no longer valid."
+    return 1
+  fi
+  live_current="$(git -C "$target" rev-parse HEAD 2>/dev/null || true)"
+  if [[ $live_current != "$expected_current" ]]; then
+    PREFLIGHT_ERROR="The installed commit changed after confirmation."
+    return 1
+  fi
+  if ! git_with_timeout -C "$target" fetch --quiet origin HEAD >/dev/null 2>&1; then
+    PREFLIGHT_ERROR="Could not re-check the update remote."
+    return 1
+  fi
+  live_available="$(git -C "$target" rev-parse FETCH_HEAD 2>/dev/null || true)"
+  if [[ $live_available != "$expected_available" ]]; then
+    PREFLIGHT_ERROR="The available update changed after confirmation. Refresh and review it again."
+    return 1
+  fi
+  if ! git -C "$target" merge-base --is-ancestor "$live_current" "$live_available" \
+    >/dev/null 2>&1; then
+    PREFLIGHT_ERROR="The confirmed update can no longer be fast-forwarded."
+    return 1
+  fi
+}
+
+resummon_okomart() {
+  local source_dir="${1:-}"
+  local expected_version attempt result loaded_version
+  expected_version="$(
+    jq -r --arg id "$OKOMART_ID" '
+      if type == "object"
+        and .id == $id
+        and (.version | type) == "string"
+        and (.version | length) > 0
+      then .version
+      else ""
+      end
+    ' "$source_dir/manifest.json" 2>/dev/null || true
+  )"
+  [[ -n $expected_version ]] || return 1
+
+  for (( attempt = 0; attempt < 40; attempt++ )); do
+    result="$(
+      timeout --signal=TERM --kill-after=1s 1s \
+        omarchy-shell shell summon "$OKOMART_ID" 2>/dev/null || true
+    )"
+    if [[ $result == "ok" ]]; then
+      loaded_version="$(
+        timeout --signal=TERM --kill-after=1s 1s \
+          omarchy-shell shell call "$OKOMART_ID" runtimeVersion "" \
+          2>/dev/null || true
+      )"
+      [[ $loaded_version == "$expected_version" ]] && return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
+SHELL_RESTART_ERROR=""
+restart_omarchy_shell() {
+  local output_file rc=0
+  SHELL_RESTART_ERROR=""
+  output_file="$(mktemp "$STATE_ROOT/.shell-restart.XXXXXX")" || {
+    SHELL_RESTART_ERROR="Could not prepare the Omarchy shell restart."
+    return 1
+  }
+  timeout --signal=TERM --kill-after=5s 30s omarchy restart shell \
+    >"$output_file" 2>&1 || rc=$?
+  if (( rc != 0 )); then
+    SHELL_RESTART_ERROR="$(cat -- "$output_file" 2>/dev/null || true)"
+    if (( ${#SHELL_RESTART_ERROR} > 12000 )); then
+      SHELL_RESTART_ERROR="${SHELL_RESTART_ERROR: -12000}"
+    fi
+    [[ -n $SHELL_RESTART_ERROR ]] ||
+      SHELL_RESTART_ERROR="Omarchy shell restart failed with exit code $rc."
+  fi
+  rm -f -- "$output_file"
+  (( rc == 0 ))
+}
+
+complete_self_update_reload() {
+  local source_dir="$1"
+  if [[ -L $ACTION_LOCK || -d $ACTION_LOCK ]]; then
+    return 1
+  fi
+  exec 6>>"$ACTION_LOCK" || return 1
+  if ! flock -w 5 6; then
+    exec 6>&-
+    return 1
+  fi
+
+  local status shell_restarted=false runtime_reloaded=false reload_error=""
+  if [[ ! -f $ACTION_STATE || -L $ACTION_STATE ]] ||
+    ! status="$(cat -- "$ACTION_STATE" 2>/dev/null)" ||
+    ! jq -e --arg id "$OKOMART_ID" '
+      type == "object"
+      and .running == false
+      and (.action == "update" or .action == "update-all")
+      and any(
+        (.results // [])[];
+        .id == $id and .operation == "update" and .ok == true
+      )
+    ' <<<"$status" >/dev/null 2>&1; then
+    exec 6>&-
+    return 0
+  fi
+  if jq -e '.runtimeReloaded == true' <<<"$status" >/dev/null 2>&1; then
+    exec 6>&-
+    return 0
+  fi
+
+  if jq -e '.shellRestarted == true' <<<"$status" >/dev/null 2>&1; then
+    shell_restarted=true
+  elif restart_omarchy_shell; then
+    shell_restarted=true
+    status="$(jq -c '
+      .selfUpdated=true
+      | .shellRestarted=true
+      | .runtimeReloaded=false
+      | .resummoned=false
+      | del(.reloadError)
+    ' <<<"$status")"
+    if ! write_action_status "$status"; then
+      exec 6>&-
+      return 1
+    fi
+  else
+    reload_error="Okomart updated, but the Omarchy shell could not restart automatically. $SHELL_RESTART_ERROR"
+    status="$(jq -c --arg error "$reload_error" '
+      .selfUpdated=true
+      | .shellRestarted=false
+      | .runtimeReloaded=false
+      | .resummoned=false
+      | .reloadError=$error
+    ' <<<"$status")"
+    write_action_status "$status" >/dev/null 2>&1 || true
+    exec 6>&-
+    return 1
+  fi
+
+  if [[ $shell_restarted == true ]] && resummon_okomart "$source_dir"; then
+    runtime_reloaded=true
+  else
+    reload_error="The Omarchy shell restarted, but Okomart did not load the updated runtime."
+  fi
+  status="$(jq -c \
+    --argjson runtimeReloaded "$runtime_reloaded" \
+    --arg error "$reload_error" '
+      .selfUpdated=true
+      | .shellRestarted=true
+      | .runtimeReloaded=$runtimeReloaded
+      | .resummoned=$runtimeReloaded
+      | if $runtimeReloaded then del(.reloadError)
+        else .reloadError=$error end
+    ' <<<"$status")"
+  local persisted=true
+  write_action_status "$status" || persisted=false
+  exec 6>&-
+  [[ $runtime_reloaded == true && $persisted == true ]]
+}
+
+recover_self_update_command() {
+  local source_arg="${1:-}"
+  (( $# == 1 )) || return 2
+
+  local source_dir
+  source_dir="$(realpath -m -- "$source_arg")"
+  [[ -d $source_dir
+    && $(realpath -m -- "$source_dir/bin/okomart") == "$SCRIPT_PATH" ]] ||
+    return 2
+
+  local attempt status
+  for (( attempt = 0; attempt < 200; attempt++ )); do
+    [[ -f $ACTION_STATE && ! -L $ACTION_STATE ]] || return 0
+    status="$(cat -- "$ACTION_STATE" 2>/dev/null)" || return 0
+    jq -e 'type == "object"' <<<"$status" >/dev/null 2>&1 || return 0
+    jq -e '.action == "update" or .action == "update-all"' <<<"$status" \
+      >/dev/null 2>&1 || return 0
+
+    if jq -e '.running == true' <<<"$status" >/dev/null 2>&1; then
+      sleep 0.1
+      continue
+    fi
+
+    if jq -e --arg id "$OKOMART_ID" '
+      .running == false
+      and any(
+        (.results // [])[];
+        .id == $id and .operation == "update" and .ok == true
+      )
+    ' <<<"$status" >/dev/null 2>&1; then
+      complete_self_update_reload "$source_dir"
+      return
+    fi
+    return 0
+  done
+  return 1
+}
+
+normalize_update_selection() {
+  local raw="${1:-}"
+  local snapshot="${2:-}"
+  [[ -n $raw && -f $snapshot && ! -L $snapshot ]] || return 1
+
+  local normalized target
+  normalized="$(jq -ce '
+    if type == "array"
+      and length > 0
+      and all(.[]; type == "string")
+      and length == (unique | length)
+    then .
+    else error("invalid update selection")
+    end
+  ' <<<"$raw" 2>/dev/null)" || return 1
+
+  while IFS= read -r target; do
+    valid_plugin_id "$target" || return 1
+    if [[ $target == "$OKOMART_ID" ]]; then
+      jq -e '.self.safeUpdate == true' "$snapshot" >/dev/null 2>&1 ||
+        return 1
+    else
+      jq -e --arg id "$target" '
+        any((.plugins // [])[]; .id == $id and .safeUpdate == true)
+      ' "$snapshot" >/dev/null 2>&1 || return 1
+    fi
+  done < <(jq -r '.[]' <<<"$normalized")
+
+  printf '%s\n' "$normalized"
+}
+
+active_generation_matches() {
+  local expected="$1"
+  [[ -n $expected &&
+    $(jq -r '.active.generation // ""' <<<"$(read_catalog)") == "$expected" ]]
+}
+
+worker_command() {
+  local source_dir="$1"
+  local action_id="$2"
+  local operation="$3"
+  local id="${4:-}"
+  local confirmed_snapshot_id="${5:-}"
+  local confirmed_snapshot_file="${6:-}"
+  local selected_updates_json="${7:-}"
+  local selected_status_json='[]'
+  if [[ -n $selected_updates_json ]] &&
+    jq -e 'type == "array"' <<<"$selected_updates_json" >/dev/null 2>&1; then
+    selected_status_json="$selected_updates_json"
+  fi
+  local started status overall=true persistence_failed=false
+  started="$(utc_now)"
+  status="$(jq -cn \
+    --arg action "$operation" \
+    --arg actionId "$action_id" \
+    --arg startedAt "$started" \
+    --argjson pid "$$" \
+    --argjson selectedUpdateIds "$selected_status_json" \
+    '{
+      ok:true,running:true,action:$action,actionId:$actionId,pid:$pid,
+      startedAt:$startedAt,finishedAt:"",message:"Working…",
+      selectedUpdateIds:$selectedUpdateIds,
+      results:[],selfUpdated:false,shellRestarted:false,
+      runtimeReloaded:false,resummoned:false,acknowledged:false
+    }')"
+  if ! write_action_status "$status"; then
+    reconcile_unpersisted_action "$action_id"
+    valid_worker_snapshot_path "$confirmed_snapshot_file" &&
+      rm -f -- "$confirmed_snapshot_file"
+    return 1
+  fi
+
+  local current_snapshot_id snapshot_path_valid=false
+  valid_worker_snapshot_path "$confirmed_snapshot_file" &&
+    snapshot_path_valid=true
+  current_snapshot_id="$(
+    jq -r '.snapshotId // ""' "$confirmed_snapshot_file" 2>/dev/null || true
+  )"
+  if [[ -z $confirmed_snapshot_id
+      || $snapshot_path_valid != true
+      || $current_snapshot_id != "$confirmed_snapshot_id" ]] ||
+    ! active_generation_matches "$confirmed_snapshot_id"; then
+    status="$(append_action_message "$status" "${id:-catalog}" "$operation" false \
+      "The catalog changed after confirmation. Reopen the action and review it again.")"
+    overall=false
+  elif [[ $operation == update-all ]] &&
+    ! selected_updates_json="$(normalize_update_selection \
+      "$selected_updates_json" "$confirmed_snapshot_file")"; then
+    status="$(append_action_message "$status" selection "$operation" false \
+      "The selected updates do not match the confirmed catalog snapshot.")"
+    overall=false
+  else
+    case "$operation" in
+  install)
+    if ! preflight_install "$id" "$confirmed_snapshot_file"; then
+      status="$(append_action_message "$status" "$id" install false "$PREFLIGHT_ERROR")"
+      overall=false
+    elif ! active_generation_matches "$confirmed_snapshot_id"; then
+      status="$(append_action_message "$status" "$id" install false \
+        "The active catalog changed during preflight. Reopen the action and review it again.")"
+      overall=false
+    else
+      local next_status rc=0
+      next_status="$(run_plugin_action "$status" install "$id" \
+        plugin add "$PREFLIGHT_URL" --enable --yes)" || rc=$?
+      status="$next_status"
+      (( rc == 0 )) || overall=false
+    fi
+    if ! write_action_status "$status"; then
+      overall=false
+      persistence_failed=true
+    fi
+    ;;
+  remove)
+    if ! preflight_remove "$id" "$confirmed_snapshot_file"; then
+      status="$(append_action_message "$status" "$id" remove false "$PREFLIGHT_ERROR")"
+      overall=false
+    elif ! active_generation_matches "$confirmed_snapshot_id"; then
+      status="$(append_action_message "$status" "$id" remove false \
+        "The active catalog changed during preflight. Reopen the action and review it again.")"
+      overall=false
+    else
+      local next_status rc=0
+      next_status="$(run_plugin_action "$status" remove "$id" \
+        plugin remove "$id" --yes)" || rc=$?
+      status="$next_status"
+      (( rc == 0 )) || overall=false
+    fi
+    if ! write_action_status "$status"; then
+      overall=false
+      persistence_failed=true
+    fi
+    ;;
+  enable | disable)
+    if ! preflight_enablement "$operation" "$id" "$confirmed_snapshot_file"; then
+      status="$(append_action_message "$status" "$id" "$operation" false "$PREFLIGHT_ERROR")"
+      overall=false
+    elif ! active_generation_matches "$confirmed_snapshot_id"; then
+      status="$(append_action_message "$status" "$id" "$operation" false \
+        "The active catalog changed during preflight. Reopen the action and review it again.")"
+      overall=false
+    else
+      local next_status rc=0
+      next_status="$(run_plugin_action "$status" "$operation" "$id" \
+        plugin "$operation" "$id")" || rc=$?
+      status="$next_status"
+      (( rc == 0 )) || overall=false
+    fi
+    if ! write_action_status "$status"; then
+      overall=false
+      persistence_failed=true
+    fi
+    ;;
+  update)
+    if ! preflight_update "$id" "$confirmed_snapshot_file" "$source_dir"; then
+      status="$(append_action_message "$status" "$id" update false "$PREFLIGHT_ERROR")"
+      overall=false
+    elif ! active_generation_matches "$confirmed_snapshot_id"; then
+      status="$(append_action_message "$status" "$id" update false \
+        "The active catalog changed during preflight. Reopen the action and review it again.")"
+      overall=false
+    else
+      local next_status rc=0
+      next_status="$(run_plugin_action "$status" update "$id" \
+        plugin update "$id" --yes)" || rc=$?
+      status="$next_status"
+      (( rc == 0 )) || overall=false
+    fi
+    if ! write_action_status "$status"; then
+      overall=false
+      persistence_failed=true
+    fi
+    ;;
+  update-all)
+    local -a targets=()
+    local selection_filter_json="$selected_updates_json"
+    mapfile -t targets < <(
+      jq -r --argjson selected "$selection_filter_json" '
+        .plugins[]
+        | select(.safeUpdate == true)
+        | .id
+        | select(. as $id | ($selected | index($id)) != null)
+        | select(
+            test("^[A-Za-z0-9][A-Za-z0-9._-]*$")
+            and (contains("..") | not)
+          )
+      ' \
+        "$confirmed_snapshot_file" 2>/dev/null | sort
+    )
+    local target next_status rc action_timed_out=false
+    for target in "${targets[@]}"; do
+      [[ $target != "$OKOMART_ID" ]] || continue
+      valid_plugin_id "$target" || continue
+      if ! preflight_update "$target" "$confirmed_snapshot_file" "$source_dir"; then
+        status="$(append_action_message "$status" "$target" update false \
+          "$PREFLIGHT_ERROR")"
+        overall=false
+      elif ! active_generation_matches "$confirmed_snapshot_id"; then
+        status="$(append_action_message "$status" "$target" update false \
+          "The active catalog changed during preflight. Remaining updates were stopped.")"
+        overall=false
+        action_timed_out=true
+      else
+        rc=0
+        next_status="$(run_plugin_action "$status" update "$target" \
+          plugin update "$target" --yes)" || rc=$?
+        status="$next_status"
+        if (( rc != 0 )); then
+          overall=false
+          (( rc == 124 || rc == 137 )) && action_timed_out=true
+        fi
+      fi
+      if ! write_action_status "$status"; then
+        overall=false
+        persistence_failed=true
+        break
+      fi
+      [[ $action_timed_out != true ]] || break
+    done
+    if [[ $persistence_failed != true && $action_timed_out != true ]] &&
+      jq -e --arg id "$OKOMART_ID" --argjson selected "$selection_filter_json" '
+        .self.safeUpdate == true
+        and ($selected | index($id)) != null
+      ' "$confirmed_snapshot_file" \
+      >/dev/null 2>&1; then
+      if ! preflight_update "$OKOMART_ID" "$confirmed_snapshot_file" "$source_dir"; then
+        status="$(append_action_message "$status" "$OKOMART_ID" update false \
+          "$PREFLIGHT_ERROR")"
+        overall=false
+      elif ! active_generation_matches "$confirmed_snapshot_id"; then
+        status="$(append_action_message "$status" "$OKOMART_ID" update false \
+          "The active catalog changed during preflight. Reopen the action and review it again.")"
+        overall=false
+      else
+        rc=0
+        next_status="$(run_plugin_action "$status" update "$OKOMART_ID" \
+          plugin update "$OKOMART_ID" --yes)" || rc=$?
+        status="$next_status"
+        (( rc == 0 )) || overall=false
+      fi
+      if ! write_action_status "$status"; then
+        overall=false
+        persistence_failed=true
+      fi
+    fi
+    ;;
+  esac
+  fi
+
+  if [[ $persistence_failed == true ]]; then
+    status="$(append_action_message "$status" catalog status false \
+      "Stopped before scheduling more mutations because action status could not be persisted.")"
+  fi
+
+  local self_updated=false
+  local shell_restarted=false runtime_reloaded=false resummoned=false
+  local reload_error=""
+  if jq -e --arg id "$OKOMART_ID" '
+    any(
+      (.results // [])[];
+      .id == $id and .operation == "update" and .ok == true
+    )
+  ' <<<"$status" >/dev/null 2>&1; then
+    self_updated=true
+  elif jq -e '
+    any(
+      (.results // [])[];
+      (.operation == "install" or .operation == "update") and .ok == true
+    )
+  ' <<<"$status" >/dev/null 2>&1; then
+    # Omarchy's asynchronous in-process rescan can return from an install
+    # before a newly enabled service finishes loading. It can also leave live
+    # loaders or compiled QML attached to a plugin's previous checkout after
+    # an update. A process restart is the activation boundary that guarantees
+    # every installed or updated plugin gets a clean load. Do this once after
+    # the whole action, never once per package.
+    if restart_omarchy_shell; then
+      shell_restarted=true
+      if resummon_okomart "$source_dir"; then
+        runtime_reloaded=true
+        resummoned=true
+      else
+        reload_error="The Omarchy shell restarted, but Okomart could not reopen to confirm the plugin runtime."
+      fi
+    else
+      reload_error="The plugin change succeeded, but the Omarchy shell could not restart automatically. $SHELL_RESTART_ERROR"
+    fi
+
+    if [[ -n $reload_error ]]; then
+      status="$(append_action_message "$status" "Omarchy shell" reload false \
+        "$reload_error")"
+      overall=false
+    fi
+  else
+    resummon_okomart "$source_dir" && resummoned=true
+  fi
+  local finished message
+  finished="$(utc_now)"
+  if [[ $overall == true ]]; then
+    message="Action completed."
+  else
+    message="Action completed with errors."
+  fi
+  status="$(jq -c \
+    --argjson ok "$overall" \
+    --argjson selfUpdated "$self_updated" \
+    --argjson shellRestarted "$shell_restarted" \
+    --argjson runtimeReloaded "$runtime_reloaded" \
+    --argjson resummoned "$resummoned" \
+    --arg reloadError "$reload_error" \
+    --arg finishedAt "$finished" \
+    --arg message "$message" \
+    '.ok=$ok | .running=false | .selfUpdated=$selfUpdated
+      | .shellRestarted=$shellRestarted
+      | .runtimeReloaded=$runtimeReloaded
+      | .resummoned=$resummoned
+      | if $reloadError == "" then del(.reloadError)
+        else .reloadError=$reloadError end
+      | .finishedAt=$finishedAt | .message=$message' <<<"$status")"
+  local final_status_written=true
+  write_action_status "$status" || final_status_written=false
+  if valid_worker_snapshot_path "$confirmed_snapshot_file"; then
+    rm -f -- "$confirmed_snapshot_file"
+  fi
+  if [[ $final_status_written != true ]]; then
+    reconcile_unpersisted_action "$action_id"
+  fi
+  [[ $overall == true && $final_status_written == true ]]
+}
+
+action_command() {
+  local source_arg="${1:-}"
+  local operation="${2:-}"
+  local id="${3:-}"
+  local confirmed_snapshot_id="${4:-}"
+  local selected_updates_json="${5:-}"
+  (( $# <= 5 )) || {
+    json_error "Too many action arguments"
+    return 2
+  }
+  [[ -n $source_arg ]] || {
+    json_error "Usage: okomart action <source-dir> <install|remove|enable|disable|update|update-all> [id] [snapshot-id] <selected-update-ids-json-for-update-all>"
+    return 2
+  }
+  local source_dir
+  source_dir="$(realpath -m -- "$source_arg")"
+  [[ -d $source_dir ]] || {
+    json_error "Okomart source directory does not exist"
+    return 2
+  }
+  case "$operation" in
+  install | remove | enable | disable | update)
+    valid_plugin_id "$id" || {
+      json_error "A valid plugin id is required"
+      return 2
+    }
+    [[ ( $operation != remove && $operation != disable ) ||
+      $id != "$OKOMART_ID" ]] || {
+      json_error "Okomart cannot remove or disable itself from its storefront"
+      return 2
+    }
+    [[ -z $selected_updates_json ]] || {
+      json_error "Update selection is supported only for update-all"
+      return 2
+    }
+    ;;
+  update-all)
+    [[ -z $id ]] || {
+      json_error "update-all does not take a plugin id"
+      return 2
+    }
+    [[ -n $selected_updates_json ]] || {
+      json_error "Select one or more updates from the confirmed list"
+      return 2
+    }
+    ;;
+  *)
+    json_error "Unknown action '$operation'"
+    return 2
+    ;;
+  esac
+  [[ -n $confirmed_snapshot_id ]] || {
+    json_error "A confirmed active catalog generation is required"
+    return 2
+  }
+  if ! jq -e --arg generation "$confirmed_snapshot_id" \
+    '.active != null and .active.generation == $generation' \
+    <<<"$(read_catalog)" >/dev/null 2>&1; then
+    jq -cn --arg snapshotId "$confirmed_snapshot_id" \
+      '{ok:false,started:false,staleConfirmation:true,snapshotId:$snapshotId,
+        error:"The catalog changed after confirmation. Review the action again."}'
+    return 1
+  fi
+
+  if [[ -L $ACTION_LOCK || -d $ACTION_LOCK ]]; then
+    json_error "The Okomart action lock path is unsafe"
+    return 1
+  fi
+  exec 9>>"$ACTION_LOCK" || {
+    json_error "Could not open the Okomart action lock"
+    return 1
+  }
+  if ! flock -n 9; then
+    jq -cn --arg statusPath "$ACTION_STATE" \
+      '{ok:false,started:false,busy:true,statusPath:$statusPath,
+        error:"Another Okomart action is already running."}'
+    exec 9>&-
+    return 1
+  fi
+
+  local action_id worker_dir worker_tmp worker confirmed_snapshot
+  local confirmed_snapshot_tmp action_status
+  action_id="$(date -u +%Y%m%dT%H%M%SZ)-$$-$RANDOM"
+  worker_dir="$STATE_ROOT/worker"
+  worker="$worker_dir/okomart"
+  if [[ -L $worker_dir ]] || ! mkdir -p -- "$worker_dir" ||
+    [[ $(realpath -m -- "$worker_dir") != "$worker_dir" ]]; then
+    json_error "The Okomart worker directory is unsafe"
+    exec 9>&-
+    return 1
+  fi
+  worker_tmp="$(mktemp "$worker_dir/.okomart.tmp.XXXXXX")" || {
+    json_error "Could not prepare the detached action worker"
+    exec 9>&-
+    return 1
+  }
+  cp -- "$SCRIPT_PATH" "$worker_tmp" && chmod 700 "$worker_tmp" &&
+    mv -fT -- "$worker_tmp" "$worker" || {
+    rm -f -- "$worker_tmp"
+    json_error "Could not prepare the detached action worker"
+    exec 9>&-
+    return 1
+  }
+
+  confirmed_snapshot="$worker_dir/snapshot-$action_id.json"
+  confirmed_snapshot_tmp="$(mktemp "$worker_dir/.snapshot-$action_id.tmp.XXXXXX")" || {
+    json_error "Could not preserve the confirmed catalog snapshot"
+    exec 9>&-
+    return 1
+  }
+  if ! snapshot_payload "$source_dir" true >"$confirmed_snapshot_tmp" ||
+    ! jq -e --arg snapshotId "$confirmed_snapshot_id" \
+      '.snapshotId == $snapshotId' "$confirmed_snapshot_tmp" >/dev/null 2>&1 ||
+    ! jq -e --arg generation "$confirmed_snapshot_id" \
+      '.active != null and .active.generation == $generation' \
+      <<<"$(read_catalog)" >/dev/null 2>&1; then
+    rm -f -- "$confirmed_snapshot_tmp"
+    jq -cn --arg snapshotId "$confirmed_snapshot_id" \
+      '{ok:false,started:false,staleConfirmation:true,snapshotId:$snapshotId,
+        error:"The active catalog changed while the action was prepared. Review it again."}'
+    exec 9>&-
+    return 1
+  fi
+  if [[ $operation == update-all ]] &&
+    ! selected_updates_json="$(normalize_update_selection \
+      "$selected_updates_json" "$confirmed_snapshot_tmp")"; then
+    rm -f -- "$confirmed_snapshot_tmp"
+    json_error "Select one or more updates from the confirmed list"
+    exec 9>&-
+    return 2
+  fi
+  if ! mv -fT -- "$confirmed_snapshot_tmp" "$confirmed_snapshot"; then
+    rm -f -- "$confirmed_snapshot_tmp"
+    json_error "Could not preserve the confirmed catalog generation"
+    exec 9>&-
+    return 1
+  fi
+
+  action_status="$(jq -cn \
+    --arg action "$operation" \
+    --arg actionId "$action_id" \
+    --argjson selectedUpdateIds "${selected_updates_json:-null}" \
+    '{
+      ok:true,running:true,action:$action,actionId:$actionId,pid:null,
+      startedAt:"",finishedAt:"",message:"Queued…",results:[],
+      selectedUpdateIds:($selectedUpdateIds // []),
+      selfUpdated:false,shellRestarted:false,runtimeReloaded:false,
+      resummoned:false,acknowledged:false
+    }')"
+  if ! write_action_status "$action_status"; then
+    rm -f -- "$confirmed_snapshot"
+    json_error "Could not persist the queued Okomart action"
+    exec 9>&-
+    return 1
+  fi
+
+  if command -v setsid >/dev/null 2>&1; then
+    setsid bash "$worker" _worker "$source_dir" "$action_id" "$operation" "$id" \
+      "$confirmed_snapshot_id" "$confirmed_snapshot" "$selected_updates_json" \
+      </dev/null >>"$ACTION_LOG" 2>&1 &
+  else
+    nohup bash "$worker" _worker "$source_dir" "$action_id" "$operation" "$id" \
+      "$confirmed_snapshot_id" "$confirmed_snapshot" "$selected_updates_json" \
+      </dev/null >>"$ACTION_LOG" 2>&1 &
+  fi
+  local pid=$!
+  exec 9>&-
+  jq -cn \
+    --argjson pid "$pid" \
+    --arg actionId "$action_id" \
+    --arg statusPath "$ACTION_STATE" \
+    '{ok:true,started:true,pid:$pid,actionId:$actionId,statusPath:$statusPath}'
+}
+
+usage_json() {
+  jq -cn '{
+    ok:false,
+    error:"Usage: okomart prepare-window <bar-position> <bar-size> | snapshot <source-dir> | refresh <source-dir> [--force] [--progress] | enrich <generation> | promote <generation> | check-updates <source-dir> | screenshots <descriptor-json> <session-id> | cleanup-media <session-id|--all> | action <source-dir> <install|remove|enable|disable|update|update-all> <id-or-empty> <generation> <selected-update-ids-json-for-update-all> | status | ack <action-id>"
+  }'
+}
+
+main() {
+  local command="${1:-}"
+  if [[ $command == prepare-window ]]; then
+    require_tool jq
+    require_tool realpath
+    init_paths
+    shift
+    prepare_window_command "$@"
+    return
+  fi
+  if [[ $command == apply-window-mode ]]; then
+    require_tool jq
+    require_tool realpath
+    init_paths
+    shift
+    apply_window_mode_command "$@"
+    return
+  fi
+
+  require_tool git
+  require_tool jq
+  require_tool realpath
+  require_tool flock
+  require_tool sha256sum
+  require_tool timeout
+  require_tool sort
+  require_tool curl
+  require_tool stat
+  init_paths
+
+  case "$command" in
+  snapshot)
+    shift
+    snapshot_command "$@"
+    ;;
+  cached)
+    shift
+    cached_command "$@"
+    ;;
+  refresh)
+    shift
+    local refresh_source="${1:-}" refresh_progress=false refresh_argument
+    shift || true
+    [[ -n $refresh_source ]] || {
+      json_error "Usage: okomart refresh <source-dir> [--force] [--progress]"
+      return 2
+    }
+    for refresh_argument in "$@"; do
+      case "$refresh_argument" in
+      --force) ;;
+      --progress) refresh_progress=true ;;
+      *)
+        json_error "Usage: okomart refresh <source-dir> [--force] [--progress]"
+        return 2
+        ;;
+      esac
+    done
+    (( $# <= 2 )) || {
+      json_error "Usage: okomart refresh <source-dir> [--force] [--progress]"
+      return 2
+    }
+    refresh_command "$refresh_source" "$refresh_progress"
+    ;;
+  _refresh-worker)
+    shift
+    (( $# == 1 )) || { refresh_failure "Invalid internal refresh request."; return 2; }
+    stage_refresh_worker "$1"
+    ;;
+  enrich)
+    shift
+    enrich_command "$@"
+    ;;
+  promote)
+    shift
+    promote_command "$@"
+    ;;
+  check-updates)
+    shift
+    check_updates_command "$@"
+    ;;
+  screenshots)
+    shift
+    screenshots_command "$@"
+    ;;
+  cleanup-media)
+    shift
+    cleanup_media_command "$@"
+    ;;
+  _semver-higher)
+    shift
+    (( $# == 2 )) || { json_error "_semver-higher requires two versions"; return 2; }
+    if semver_is_higher "$1" "$2"; then
+      jq -cn --arg available "$1" --arg previous "$2" \
+        '{ok:true,higher:true,available:$available,previous:$previous}'
+    else
+      jq -cn --arg available "$1" --arg previous "$2" \
+        '{ok:true,higher:false,available:$available,previous:$previous}'
+    fi
+    ;;
+  action)
+    shift
+    action_command "$@"
+    ;;
+  status)
+    shift
+    (( $# == 0 )) || {
+      json_error "status does not take arguments"
+      return 2
+    }
+    status_command
+    ;;
+  ack)
+    shift
+    ack_command "$@"
+    ;;
+  _worker)
+    shift
+    worker_command "$@"
+    ;;
+  _recover-self-update)
+    shift
+    recover_self_update_command "$@"
+    ;;
+  *)
+    usage_json
+    return 2
+    ;;
+  esac
+}
+
+main "$@"

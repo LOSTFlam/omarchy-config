@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.rr-codebase.wallpaper-weather",
+  "name": "Wallpaper Weather",
+  "version": "1.1.0",
+  "author": "Ruan Roos",
+  "description": "Live weather for your wallpaper: rain, sunshine and night as independent toggles, drawn over the desktop background",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "service": "Background.qml",
+    "barWidget": "WeatherWidget.qml"
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.background"
+  },
+  "license": "MIT",
+  "barWidget": {
+    "displayName": "Wallpaper Weather",
+    "description": "Wallpaper weather panel: switch rain, sunshine and night, and set intensity and wind.",
+    "category": "Appearance",
+    "aliases": [
+      "weather",
+      "rain",
+      "wallpaper",
+      "mood",
+      "sky"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

@@ -1,0 +1,15 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+
+"$ROOT/plugin-state-test.sh"
+"$ROOT/update-helper-test.sh"
+"$ROOT/quickshell-detached-test.sh"
+bash "$ROOT/verification-status-test.sh"
+node "$ROOT/plugin-metadata-test.cjs"
+"$ROOT/auto-check-test.sh"
+"$ROOT/auto-check-coordinator-test.sh"
+"$ROOT/nested-widget-toggle-test.sh"
+python3 "$ROOT/security-regression-test.py"

@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "id": "ryrobes.beatbar",
+  "name": "Beatbar",
+  "version": "1.0.2",
+  "author": "Ryan Robitaille",
+  "license": "MIT",
+  "description": "A live, theme-reactive PipeWire frequency garden for the Omarchy bar",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Beatbar",
+    "description": "Live spectrum visualization of the default PipeWire output mix",
+    "category": "Audio",
+    "aliases": [
+      "audio-visualizer",
+      "cava",
+      "spectrum",
+      "frequency"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "center",
+    "defaults": {
+      "mode": "Garden",
+      "width": 112,
+      "gain": 100,
+      "bassMotion": "Subtle",
+      "auroraPulse": true,
+      "showIdleLine": true
+    },
+    "schema": [
+      {
+        "key": "mode",
+        "type": "enum",
+        "label": "Visualization",
+        "options": [
+          "Garden",
+          "Mirror",
+          "Aurora"
+        ],
+        "defaultValue": "Garden",
+        "description": "Click the widget to cycle modes."
+      },
+      {
+        "key": "width",
+        "type": "integer",
+        "label": "Width",
+        "min": 72,
+        "max": 220,
+        "step": 8,
+        "defaultValue": 112
+      },
+      {
+        "key": "gain",
+        "type": "integer",
+        "label": "Visual gain",
+        "min": 40,
+        "max": 250,
+        "step": 10,
+        "defaultValue": 100,
+        "description": "Mouse-wheel over Beatbar to adjust."
+      },
+      {
+        "key": "bassMotion",
+        "type": "enum",
+        "label": "Bass motion",
+        "options": [
+          "Off",
+          "Subtle",
+          "Loose"
+        ],
+        "defaultValue": "Subtle",
+        "description": "Shake and pulse the spectrum when low-frequency transients hit."
+      },
+      {
+        "key": "auroraPulse",
+        "type": "boolean",
+        "label": "Aurora bass sweep",
+        "defaultValue": true,
+        "description": "Send a bass-strength pulse across Aurora from left to right."
+      },
+      {
+        "key": "showIdleLine",
+        "type": "boolean",
+        "label": "Show line when silent",
+        "defaultValue": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Omagen Advanced Runtime hook
+# Installed with explicit user consent. It is deliberately a post-theme hook:
+# native Omarchy applies colors.toml and shell.toml before this is reached.
+set -eu
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+omagen_bin="${OMAGEN_RUNTIME_BIN:-$config_home/omarchy/plugins/pretty.omagen/bin/omagen}"
+[ -x "$omagen_bin" ] || exit 0
+exec "$omagen_bin" runtime theme-set "${1:-}"

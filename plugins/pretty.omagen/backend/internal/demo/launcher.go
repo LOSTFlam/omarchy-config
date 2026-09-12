@@ -1,0 +1,445 @@
+package demo
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/prettyletto/omagen/backend/internal/processutil"
+)
+
+type launchHints struct {
+	PIDs          map[Slot]int
+	EditorName    string
+	OwnerToken    string
+	terminalExits <-chan processExit
+}
+
+type slotLaunch struct {
+	Slot Slot
+	Cmd  *exec.Cmd
+}
+
+type processExit struct {
+	slot Slot
+	err  error
+}
+
+func allDemoSlots() []Slot { return []Slot{SlotEditor, SlotBtop, SlotShell, SlotFiles} }
+
+func launchDemoSlots(demoDir, ownerToken string, slots []Slot, capabilities Capabilities, before map[string]clientInfo, logger *launchLogger) (map[Slot]string, error) {
+	launches, hints, err := buildDemoLaunchesForSlots(demoDir, ownerToken, slots, capabilities)
+	if err != nil {
+		return nil, err
+	}
+	return launchDemoCommands(launches, hints, slots, before, logger)
+}
+
+func launchWindowDemoSlot(demoDir, ownerToken string, slots []Slot, capabilities Capabilities, before map[string]clientInfo, logger *launchLogger) (map[Slot]string, error) {
+	if capabilities.Terminal.Command == "" {
+		return nil, fmt.Errorf("window demo requires a terminal capability")
+	}
+	if len(slots) == 0 {
+		slots = []Slot{SlotEditor, SlotBtop}
+	}
+	launches := make([]slotLaunch, 0, len(slots))
+	for _, slot := range slots {
+		switch slot {
+		case SlotEditor, SlotBtop:
+			launches = append(launches, slotLaunch{Slot: slot, Cmd: buildWindowCommandFor(demoDir, ownerToken, slot, capabilities)})
+		default:
+			return nil, fmt.Errorf("window demo does not support slot %s", slot)
+		}
+	}
+	return launchDemoCommands(launches, launchHints{PIDs: map[Slot]int{}, OwnerToken: ownerToken}, slots, before, logger)
+}
+
+func launchDemoCommands(launches []slotLaunch, hints launchHints, slots []Slot, before map[string]clientInfo, logger *launchLogger) (map[Slot]string, error) {
+	terminalExits := make(chan processExit, 4)
+	hints.terminalExits = terminalExits
+	for _, launch := range launches {
+		if launch.Cmd == nil {
+			return nil, fmt.Errorf("no launcher for demo slot %s", launch.Slot)
+		}
+		resolved, lookErr := processutil.Resolve(launch.Cmd.Path)
+		if lookErr != nil {
+			logger.line("resolve slot=%s path=%q error=%v", launch.Slot, launch.Cmd.Path, lookErr)
+			return nil, fmt.Errorf("resolve demo %s executable: %w", launch.Slot, lookErr)
+		}
+		// Resolve PATH once and execute the same absolute path. This prevents a
+		// PATH replacement between capability discovery and process start.
+		launch.Cmd.Path = resolved
+		logger.line("launch slot=%s path=%q resolved=%q args=%q dir=%q env_OMAGEN_DEMO_DIR=%q", launch.Slot, launch.Cmd.Args[0], resolved, launch.Cmd.Args, launch.Cmd.Dir, envValue(launch.Cmd.Env, "OMAGEN_DEMO_DIR"))
+		stdout := processutil.NewLimitedBuffer(processutil.DefaultOutputLimit)
+		stderr := processutil.NewLimitedBuffer(processutil.DefaultOutputLimit)
+		launch.Cmd.Stdout = stdout
+		launch.Cmd.Stderr = stderr
+		if err := launch.Cmd.Start(); err != nil {
+			logger.line("start slot=%s error=%v stdout=%q stderr=%q", launch.Slot, err, stdout.String(), stderr.String())
+			return nil, fmt.Errorf("start demo %s: %w", launch.Slot, err)
+		}
+		hints.PIDs[launch.Slot] = launch.Cmd.Process.Pid
+		logger.line("started slot=%s pid=%d", launch.Slot, launch.Cmd.Process.Pid)
+		go func(slot Slot, cmd *exec.Cmd, out, errOut *processutil.LimitedBuffer) {
+			err := cmd.Wait()
+			logger.line("exit slot=%s pid=%d error=%v stdout=%q stderr=%q", slot, cmd.Process.Pid, err, out.String(), errOut.String())
+			if isTerminalSlot(slot) && exitedFromTerminalReload(err) {
+				terminalExits <- processExit{slot: slot, err: err}
+			}
+		}(launch.Slot, launch.Cmd, stdout, stderr)
+	}
+	return waitForDemoWindows(before, hints, slots, 10*time.Second, logger)
+}
+
+func buildDemoLaunches(demoDir string, capabilities Capabilities) ([]slotLaunch, launchHints, error) {
+	return buildDemoLaunchesForSlots(demoDir, "demo", allDemoSlots(), capabilities)
+}
+
+func buildDemoLaunchesForSlots(demoDir, ownerToken string, slots []Slot, capabilities Capabilities) ([]slotLaunch, launchHints, error) {
+	if capabilities.Terminal.Command == "" {
+		return nil, launchHints{}, fmt.Errorf("demo requires a terminal capability")
+	}
+	launches := make([]slotLaunch, 0, len(slots))
+	var editorName string
+	for _, slot := range slots {
+		var cmd *exec.Cmd
+		switch slot {
+		case SlotEditor:
+			cmd, editorName = buildEditorCommandFor(demoDir, ownerToken, capabilities)
+		case SlotBtop:
+			cmd = buildMonitorCommandFor(demoDir, ownerToken, capabilities)
+		case SlotShell:
+			cmd = buildShellCommandFor(demoDir, ownerToken, capabilities)
+		case SlotFiles:
+			cmd = buildFilesCommandFor(demoDir, ownerToken, capabilities)
+		default:
+			return nil, launchHints{}, fmt.Errorf("unknown demo slot %s", slot)
+		}
+		launches = append(launches, slotLaunch{Slot: slot, Cmd: cmd})
+	}
+	for _, launch := range launches {
+		if launch.Cmd == nil {
+			return nil, launchHints{}, fmt.Errorf("no launcher for demo slot %s", launch.Slot)
+		}
+	}
+	return launches, launchHints{PIDs: map[Slot]int{}, EditorName: editorName, OwnerToken: ownerToken}, nil
+}
+
+func isTerminalSlot(slot Slot) bool {
+	return slot == SlotEditor || slot == SlotBtop || slot == SlotShell || slot == SlotFiles
+}
+
+func exitedFromTerminalReload(err error) bool {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return false
+	}
+	status, ok := exitErr.Sys().(syscall.WaitStatus)
+	return ok && status.Signaled() && status.Signal() == syscall.SIGUSR2
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, value := range env {
+		if strings.HasPrefix(value, prefix) {
+			return strings.TrimPrefix(value, prefix)
+		}
+	}
+	return ""
+}
+func demoAppID(token string, slot Slot) string {
+	return fmt.Sprintf("org.omagen.demo.%s.%s", token, slot)
+}
+
+func buildEditorCommandFor(demoDir, token string, capabilities Capabilities) (*exec.Cmd, string) {
+	sample := filepath.Join(demoDir, "sample.go")
+	if capabilities.Editor.Command == "" {
+		return terminalCommand(capabilities.Terminal, demoAppID(token, SlotEditor), demoDir, "/bin/bash", "-lc", sourceViewerScript(sample)), ""
+	}
+	if capabilities.Editor.Kind == "tui" {
+		return terminalCommand(capabilities.Terminal, demoAppID(token, SlotEditor), demoDir, capabilities.Editor.Command, sample), capabilities.Editor.Command
+	}
+	cmd := exec.Command(capabilities.Editor.Command, sample)
+	cmd.Dir = demoDir
+	return cmd, capabilities.Editor.Command
+}
+
+func buildWindowCommandFor(demoDir, token string, slot Slot, capabilities Capabilities) *exec.Cmd {
+	studioBinary := "omagen-studio"
+	if executable, err := os.Executable(); err == nil {
+		candidate := filepath.Join(filepath.Dir(executable), "omagen-studio")
+		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+			studioBinary = candidate
+		}
+	}
+	return withColorTerminal(terminalCommand(capabilities.Terminal, demoAppID(token, slot), demoDir, studioBinary))
+}
+
+func withColorTerminal(cmd *exec.Cmd) *exec.Cmd {
+	filtered := make([]string, 0, len(cmd.Env)+2)
+	for _, entry := range cmd.Env {
+		if strings.HasPrefix(entry, "NO_COLOR=") || strings.HasPrefix(entry, "TERM=") || strings.HasPrefix(entry, "COLORTERM=") {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	cmd.Env = append(filtered, "TERM=xterm-256color", "COLORTERM=truecolor")
+	return cmd
+}
+func buildMonitorCommandFor(dir, token string, capabilities Capabilities) *exec.Cmd {
+	if capabilities.Monitor.Command != "" {
+		return terminalCommand(capabilities.Terminal, demoAppID(token, SlotBtop), dir, capabilities.Monitor.Command)
+	}
+	return terminalCommand(capabilities.Terminal, demoAppID(token, SlotBtop), dir, "/bin/bash", "-lc", systemInfoScript())
+}
+func buildShellCommandFor(dir, token string, capabilities Capabilities) *exec.Cmd {
+	script := `cd "$OMAGEN_DEMO_DIR" || exit 1
+printf '\033[1mOmagen demo\033[0m\n\n'
+if command -v lsd >/dev/null 2>&1; then lsd -la; else ls -la; fi
+printf '\n'
+exec "${SHELL:-/bin/bash}" -l
+`
+	cmd := terminalCommand(capabilities.Terminal, demoAppID(token, SlotShell), dir, "/bin/bash", "-lc", script)
+	return cmd
+}
+func buildFilesCommandFor(dir, token string, capabilities Capabilities) *exec.Cmd {
+	if capabilities.FileManager.Command != "" {
+		fileManager := resolveCommand(capabilities.FileManager.Command)
+		if capabilities.FileManager.Command == "xdg-open" {
+			cmd := exec.Command(fileManager, dir)
+			cmd.Dir = dir
+			return detachGUICommand(cmd)
+		}
+		// Omarchy launches GUI applications through uwsm so they remain in the
+		// user graphical scope and inherit the compositor/session startup
+		// context. A direct Nautilus process can map briefly and then disappear
+		// or be handed back to another workspace when its GApplication instance
+		// is not launched through that native boundary.
+		if uwsm, err := exec.LookPath("uwsm-app"); err == nil {
+			cmd := exec.Command(uwsm, "--", fileManager, "--new-window", dir)
+			cmd.Dir = dir
+			return detachGUICommand(cmd)
+		}
+		cmd := exec.Command(fileManager, "--new-window", dir)
+		cmd.Dir = dir
+		return detachGUICommand(cmd)
+	}
+	return terminalCommand(capabilities.Terminal, demoAppID(token, SlotFiles), dir, "/bin/bash", "-lc", fileListingScript())
+}
+
+func detachGUICommand(cmd *exec.Cmd) *exec.Cmd {
+	// The CLI may be invoked from a short-lived shell (for example from the
+	// panel's backend call). GUI launchers such as uwsm-app otherwise inherit
+	// that process group and can receive its terminal hangup when `demo open`
+	// returns, taking the Nautilus client with them.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return cmd
+}
+
+func terminalCommand(capability ApplicationCapability, appID, dir string, command string, args ...string) *exec.Cmd {
+	terminal := resolveCommand(capability.Command)
+	command = resolveCommand(command)
+	var cmd *exec.Cmd
+	switch filepath.Base(terminal) {
+	case "omarchy-launch-tui":
+		cmd = exec.Command(terminal, append([]string{"--app-id=" + appID, command}, args...)...)
+	case "xdg-terminal-exec":
+		cmd = exec.Command(terminal, append([]string{"--app-id=" + appID, "-e", command}, args...)...)
+	default:
+		cmd = exec.Command(terminal, append([]string{"-e", command}, args...)...)
+	}
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "OMAGEN_DEMO_DIR="+dir)
+	return cmd
+}
+
+func resolveCommand(command string) string {
+	if resolved, err := processutil.Resolve(command); err == nil {
+		return resolved
+	}
+	return command
+}
+
+func sourceViewerScript(sample string) string {
+	quotedSample := shellQuote(sample)
+	return fmt.Sprintf("if command -v bat >/dev/null 2>&1; then bat --style=numbers %s; elif command -v less >/dev/null 2>&1; then sed -n '1,120p' %s | less; else sed -n '1,120p' %s; fi\nprintf '\\n'\nexec \"${SHELL:-/bin/bash}\" -l", quotedSample, quotedSample, quotedSample)
+}
+
+// shellQuote returns a single-quoted POSIX shell word. Go's %q is a Go
+// string literal, not a shell literal: characters such as $ and ` retain
+// expansion semantics inside its double quotes.
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func systemInfoScript() string {
+	return "printf 'SYSTEM\\n\\n'; uptime; printf '\\nMEMORY\\n'; free -h; printf '\\nDISK\\n'; df -h /; printf '\\nPROCESSES\\n'; ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -12; exec \"${SHELL:-/bin/bash}\" -l"
+}
+func fileListingScript() string {
+	return "cd \"$OMAGEN_DEMO_DIR\" || exit 1; if command -v tree >/dev/null 2>&1; then tree -a -L 2; elif command -v find >/dev/null 2>&1; then find . -maxdepth 2 -print; else ls -la; fi; printf '\\n'; exec \"${SHELL:-/bin/bash}\" -l"
+}
+func waitForDemoWindows(before map[string]clientInfo, hints launchHints, expectedSlots []Slot, timeout time.Duration, logger *launchLogger) (map[Slot]string, error) {
+	deadline := time.Now().Add(timeout)
+	var last []clientInfo
+	lastCount := -1
+	lastClassification := ""
+	for time.Now().Before(deadline) {
+		current, err := clients()
+		if err != nil {
+			logger.line("client snapshot error=%v", err)
+			return nil, err
+		}
+		fresh := []clientInfo{}
+		for _, c := range current {
+			if c.Address != "" {
+				if _, ok := before[c.Address]; !ok {
+					fresh = append(fresh, c)
+				}
+			}
+		}
+		last = fresh
+		windows := classifyDemoWindows(fresh, hints)
+		if exit := terminalReloadExit(hints, windows); exit != nil {
+			logger.line("terminal launch interrupted before window classification: slot=%s error=%v", exit.slot, exit.err)
+			return windows, fmt.Errorf("demo %s terminal was interrupted by Omarchy terminal reload", exit.slot)
+		}
+		classification := formatWindows(windows)
+		if len(fresh) != lastCount || classification != lastClassification {
+			logger.jsonLine("client snapshot", current)
+			logger.jsonLine("new clients", fresh)
+			logger.line("classification fresh=%d slots=%s", len(fresh), classification)
+			lastCount = len(fresh)
+			lastClassification = classification
+		}
+		if len(windows) == len(expectedSlots) {
+			logger.line("all demo windows classified: %s", classification)
+			return windows, nil
+		}
+		time.Sleep(75 * time.Millisecond)
+	}
+	windows := classifyDemoWindows(last, hints)
+	logger.jsonLine("timeout final clients", last)
+	logger.line("timeout classification fresh=%d slots=%s", len(last), formatWindows(windows))
+	return windows, fmt.Errorf("timed out waiting for demo windows; saw %d new window(s)", len(last))
+}
+
+func terminalReloadExit(hints launchHints, windows map[Slot]string) *processExit {
+	for {
+		select {
+		case exit := <-hints.terminalExits:
+			if windows[exit.slot] == "" {
+				return &exit
+			}
+		default:
+			return nil
+		}
+	}
+}
+
+func formatWindows(windows map[Slot]string) string {
+	return fmt.Sprintf("editor=%q btop=%q shell=%q files=%q", windows[SlotEditor], windows[SlotBtop], windows[SlotShell], windows[SlotFiles])
+}
+func matchesOwnedSlot(client clientInfo, token string, slot Slot) bool {
+	expected := strings.ToLower(demoAppID(token, slot))
+	return strings.ToLower(client.Class) == expected || strings.ToLower(client.InitialClass) == expected
+}
+func discoverOwnedWindows(token string) (map[Slot]string, error) {
+	current, err := clients()
+	if err != nil {
+		return nil, err
+	}
+	result := map[Slot]string{}
+	for _, client := range current {
+		for _, slot := range allDemoSlots() {
+			if client.Address != "" && matchesOwnedSlot(client, token, slot) {
+				result[slot] = client.Address
+			}
+		}
+	}
+	return result, nil
+}
+func classifyDemoWindows(clients []clientInfo, hints launchHints) map[Slot]string {
+	result := map[Slot]string{}
+	used := map[string]bool{}
+	assign := func(slot Slot, c clientInfo) {
+		if result[slot] == "" && c.Address != "" && !used[c.Address] {
+			result[slot] = c.Address
+			used[c.Address] = true
+		}
+	}
+	for _, c := range clients {
+		for slot, pid := range hints.PIDs {
+			if pid > 0 && c.PID == pid {
+				assign(slot, c)
+			}
+		}
+	}
+	for _, c := range clients {
+		if used[c.Address] {
+			continue
+		}
+		text := strings.ToLower(strings.Join([]string{c.Class, c.InitialClass, c.Title, c.InitialTitle}, " "))
+		switch {
+		case matchesOwnedSlot(c, hints.OwnerToken, SlotBtop) || (hints.OwnerToken == "demo" && strings.Contains(text, "org.omagen.demo.btop")):
+			assign(SlotBtop, c)
+		case matchesOwnedSlot(c, hints.OwnerToken, SlotShell) || (hints.OwnerToken == "demo" && strings.Contains(text, "org.omagen.demo.shell")):
+			assign(SlotShell, c)
+		case matchesOwnedSlot(c, hints.OwnerToken, SlotEditor) || (hints.OwnerToken == "demo" && strings.Contains(text, "org.omagen.demo.editor")):
+			assign(SlotEditor, c)
+		case matchesOwnedSlot(c, hints.OwnerToken, SlotFiles) || (hints.OwnerToken == "demo" && strings.Contains(text, "org.omagen.demo.files")):
+			assign(SlotFiles, c)
+		}
+	}
+	for _, c := range clients {
+		if !used[c.Address] && isFileManagerClient(c) {
+			assign(SlotFiles, c)
+		}
+	}
+	for _, c := range clients {
+		if !used[c.Address] && isEditorClient(c, hints.EditorName) {
+			assign(SlotEditor, c)
+		}
+	}
+	leftovers := []clientInfo{}
+	for _, c := range clients {
+		if !used[c.Address] {
+			leftovers = append(leftovers, c)
+		}
+	}
+	sort.Slice(leftovers, func(i, j int) bool { return leftovers[i].Address < leftovers[j].Address })
+	if result[SlotFiles] == "" && len(leftovers) == 1 {
+		assign(SlotFiles, leftovers[0])
+	}
+	return result
+}
+func isFileManagerClient(c clientInfo) bool {
+	text := strings.ToLower(c.Class + " " + c.InitialClass)
+	for _, token := range []string{"nautilus", "dolphin", "thunar", "nemo", "pcmanfm", "caja"} {
+		if strings.Contains(text, token) {
+			return true
+		}
+	}
+	return false
+}
+func isEditorClient(c clientInfo, editor string) bool {
+	hint := strings.ToLower(filepath.Base(editor))
+	if hint == "" {
+		return false
+	}
+	text := strings.ToLower(strings.Join([]string{c.Class, c.InitialClass, c.Title, c.InitialTitle}, " "))
+	switch hint {
+	case "code-insiders":
+		hint = "code"
+	case "vscodium":
+		hint = "codium"
+	case "sublime_text":
+		hint = "sublime"
+	}
+	return strings.Contains(text, hint) || strings.Contains(strings.ToLower(c.Title), "sample.go")
+}

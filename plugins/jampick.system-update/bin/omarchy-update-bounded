@@ -1,0 +1,124 @@
+#!/bin/bash
+# Run a producer behind a hard boundary: its own process group, a deadline, and
+# a byte cap on what it may hand back.
+#
+# Usage: omarchy-update-bounded <seconds> <max-bytes> -- command [args...]
+#
+# Why a process group. The shell can stop a Process it started, but that
+# signals the immediate child and nothing else. Every producer here is a tree:
+# timeout, checkupdates, fakeroot, pacman, git, jq, awk and pipelines between
+# them. Stopping the child it happens to have a handle on can leave the rest of
+# that tree running after the panel has said it is done. So the command is
+# started as one background job with job control on, which gives it a process
+# group of its own, and the group is what gets signalled: TERM, a grace period,
+# then KILL. Cancellation does not return until the group is gone.
+#
+# Why the byte cap lives here. QML's StdioCollector has no size limit of its
+# own; it buffers a process to completion inside the long-running shell. A cap
+# applied after that has already happened is not a cap. This runs in a separate
+# process, so the limit is enforced before the shell sees a byte, and the
+# producer is closed down at the moment it exceeds it rather than merely
+# ignored afterwards.
+#
+# The deadline is enforced by a watchdog that is deliberately NOT a member of
+# the group it guards. If this launcher is killed outright the watchdog is
+# orphaned but still fires, so the group has a bounded lifetime even when
+# nothing is left alive to ask it to stop.
+#
+# Exit status is the command's own, or:
+#   124  the deadline passed and the group was torn down (as timeout(1))
+#   125  the output cap was hit, or the boundary could not be established
+#   143  this launcher was signalled and tore the group down
+
+set -uo pipefail
+
+# The tools this boundary itself needs are resolved in trusted locations rather
+# than through the caller's PATH, so a caller cannot disarm the cap by handing
+# it a PATH with no head(1) on it. The command being run still gets the PATH it
+# was given, which is what makes the "nothing is installed" tests meaningful.
+trusted() {
+  local dir
+  for dir in /usr/bin /bin /usr/local/bin; do
+    [[ -x $dir/$1 ]] && { printf '%s\n' "$dir/$1"; return 0; }
+  done
+  return 1
+}
+
+MKTEMP=$(trusted mktemp) || exit 125
+HEAD=$(trusted head) || exit 125
+SLEEP=$(trusted sleep) || exit 125
+CAT=$(trusted cat) || exit 125
+STAT=$(trusted stat) || exit 125
+RM=$(trusted rm) || exit 125
+
+(($# >= 3)) || exit 125
+deadline=$1
+limit=$2
+shift 2
+[[ ${1:-} == "--" ]] && shift
+(($# >= 1)) || exit 125
+
+workdir=$("$MKTEMP" -d) || exit 125
+trap '"$RM" -rf "$workdir"' EXIT
+
+# Job control, so the pipeline below lands in a process group of its own. The
+# whole pipeline is wrapped in a subshell so the job is a single process: bash
+# reports the last process of a bare pipeline in $!, but the group is led by
+# the first, and the group id is what has to be signalled.
+set -m
+(
+  set -o pipefail
+  { "$@"; echo $? >"$workdir/status"; } | "$HEAD" -c "$limit" >"$workdir/out"
+) 2>/dev/null &
+group=$!
+
+# Outside that group on purpose: see the header.
+(
+  "$SLEEP" "$deadline"
+  kill -TERM -"$group" 2>/dev/null
+  "$SLEEP" 3
+  kill -KILL -"$group" 2>/dev/null
+) 2>/dev/null &
+watchdog=$!
+set +m
+
+# TERM the group, give it a moment to unwind, then KILL what is left. Returns
+# only once no member of the group is still alive.
+teardown() {
+  local i
+  kill -TERM -"$group" 2>/dev/null
+  for i in {1..12}; do
+    kill -0 -"$group" 2>/dev/null || return 0
+    "$SLEEP" 0.25
+  done
+  kill -KILL -"$group" 2>/dev/null
+  "$SLEEP" 0.25
+  return 0
+}
+
+# The watchdog is a group of its own, and it spends its life blocked in
+# sleep(1). Signalling the subshell alone would leave that sleep behind as an
+# orphan, so the group is what gets signalled here too.
+stop_watchdog() {
+  kill -TERM -"$watchdog" 2>/dev/null
+  kill -TERM "$watchdog" 2>/dev/null
+  wait "$watchdog" 2>/dev/null
+  return 0
+}
+
+trap 'teardown; stop_watchdog; exit 143' TERM INT HUP
+
+wait "$group" 2>/dev/null
+stop_watchdog
+
+# No status file means the command never reached its own exit: the watchdog
+# reached it first.
+[[ -f $workdir/status ]] || exit 124
+status=$("$CAT" "$workdir/status" 2>/dev/null)
+[[ $status =~ ^[0-9]+$ ]] || exit 124
+
+size=$("$STAT" -c%s "$workdir/out" 2>/dev/null || echo 0)
+"$CAT" "$workdir/out"
+(( size >= limit )) && exit 125
+
+exit "$status"

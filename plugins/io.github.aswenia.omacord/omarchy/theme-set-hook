@@ -1,0 +1,73 @@
+#!/bin/bash
+# omacord theme-set hook.
+#
+# Run by omarchy-hook as `bash <this file> <theme-slug>` at the end of
+# every `omarchy theme set` / `omarchy theme refresh`, after the template
+# engine has already rendered omacord.palette.css into the current theme.
+#
+# Unlike a symlink bridge, this writes the stylesheet into each client's
+# themes directory. That matters: Vencord watches the themes *directory*
+# with fs.watch, and a directory watch never fires when a symlink's target
+# changes - only when a directory entry does. Writing is what makes the
+# retint land live instead of waiting for a restart.
+#
+# This runs inside the theme switch, so it stays quiet and never fails in
+# a way that could abort the switch.
+
+set -uo pipefail
+
+OMACORD_DATA="${OMACORD_DATA:-$HOME/.local/share/omacord}"
+[[ -r $OMACORD_DATA/lib.sh ]] || exit 0
+# shellcheck source=/dev/null
+. "$OMACORD_DATA/lib.sh"
+
+theme_dir=$(omacord_theme_dir) || exit 0
+
+compose() {
+  # A theme may ship its own vencord.theme.css. Two of the themes in the
+  # wild already do. Theirs is a deliberate, hand-tuned choice by the
+  # theme author, so it wins outright over anything generated here.
+  if [[ -f $theme_dir/vencord.theme.css ]]; then
+    printf '/* omacord: theme supplies its own vencord.theme.css */\n'
+    cat "$theme_dir/vencord.theme.css"
+    return
+  fi
+
+  printf '/**\n * @name omacord\n * @description Discord, retinted to the active Omarchy theme.\n * @author omacord\n * @source https://github.com/ASwenia/omacord\n **/\n\n'
+
+  # The palette. Any {{ token }} the template engine could not resolve -
+  # a theme missing an `accent` key, say - is dropped rather than emitted
+  # as a garbage value, so base.css falls back to its own default.
+  if [[ -f $theme_dir/$OMACORD_PALETTE ]]; then
+    grep -v '{{' "$theme_dir/$OMACORD_PALETTE"
+    printf '\n'
+  fi
+
+  [[ -f $OMACORD_DATA/style.css ]] && cat "$OMACORD_DATA/style.css"
+}
+
+body=$(compose) || exit 0
+[[ -n $body ]] || exit 0
+
+while read -r themes_dir; do
+  [[ -d $themes_dir ]] || continue
+  target="$themes_dir/$OMACORD_THEME_FILE"
+
+  # Nothing changed: skip the write so `omarchy theme refresh` does not
+  # bounce every open client for no reason.
+  if [[ -f $target ]] && printf '%s\n' "$body" | cmp -s - "$target"; then
+    continue
+  fi
+
+  # Stage in the destination directory so the replacement is a rename on
+  # the same filesystem: the client never observes a half-written file.
+  tmp=$(mktemp "$themes_dir/.omacord.XXXXXX" 2>/dev/null) || continue
+  if printf '%s\n' "$body" >"$tmp" 2>/dev/null; then
+    chmod 644 "$tmp" 2>/dev/null
+    mv -f "$tmp" "$target" 2>/dev/null || rm -f "$tmp"
+  else
+    rm -f "$tmp"
+  fi
+done < <(omacord_client_dirs)
+
+exit 0

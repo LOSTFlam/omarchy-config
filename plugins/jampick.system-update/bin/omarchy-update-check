@@ -1,0 +1,48 @@
+#!/bin/bash
+# Ask whether Omarchy is behind, behind the same boundary as the detailed scan.
+#
+# omarchy-update-available prints a line or two and exits 0 when there is
+# something to install. The shell used to run it directly, with a bare
+# StdioCollector, which has no size limit: the whole of whatever it printed was
+# buffered inside the long-running shell process and only then truncated for
+# display. Truncating after the fact is not a limit. So it runs through
+# omarchy-update-bounded instead, which caps the bytes and imposes a deadline
+# in a separate process, and tears down the whole process tree rather than the
+# one child the shell has a handle on. What comes back is at most a few lines,
+# which is a couple of orders of magnitude more than the two this ever prints.
+#
+# It also runs against this plugin's own verified private pacman database
+# rather than the shared predictable one, and it is the run that syncs it. The
+# scan that follows reuses that sync, which is what keeps opening the panel off
+# the network.
+#
+# Exit status is omarchy-update-available's own: 0 means an update is waiting.
+
+set -uo pipefail
+
+here=${BASH_SOURCE[0]%/*}
+[[ $here == "${BASH_SOURCE[0]}" ]] && here=.
+
+readonly MAX_CHECK_BYTES=${OMARCHY_UPDATE_CHECK_MAX_OUTPUT:-4096}
+readonly CHECK_DEADLINE=${OMARCHY_UPDATE_CHECK_DEADLINE:-90}
+
+if [[ -z ${OMARCHY_UPDATE_BOUNDED:-} ]]; then
+  [[ -x $here/omarchy-update-bounded ]] || exit 1
+  export OMARCHY_UPDATE_BOUNDED=1
+  exec "$here/omarchy-update-bounded" "$CHECK_DEADLINE" "$MAX_CHECK_BYTES" -- "$0" "$@"
+fi
+
+workdir=$(mktemp -d) || exit 1
+trap 'rm -rf "$workdir"' EXIT
+
+# shellcheck source=./omarchy-update-db.sh
+source "$here/omarchy-update-db.sh" || exit 1
+resolve_update_db "$workdir" || exit 1
+export CHECKUPDATES_DB=$UPDATE_DB
+
+# omarchy-update-available runs under `set -u` and reads OMARCHY_PATH
+# unguarded, so it is given the same default the scan uses.
+export OMARCHY_PATH=${OMARCHY_PATH:-/usr/share/omarchy}
+
+omarchy-update-available
+exit $?

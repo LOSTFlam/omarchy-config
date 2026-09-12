@@ -1,0 +1,517 @@
+package generation
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/prettyletto/omagen/backend/internal/fsutil"
+	"github.com/prettyletto/omagen/backend/internal/imageanalysis"
+	"github.com/prettyletto/omagen/backend/internal/session"
+	settingspkg "github.com/prettyletto/omagen/backend/internal/settings"
+	"github.com/prettyletto/omagen/backend/internal/theme"
+)
+
+type Service struct {
+	sessions *session.Store
+	settings *settingspkg.Store
+	omarchy  session.Omarchy
+}
+
+func NewService(
+	sessions *session.Store,
+	settings *settingspkg.Store,
+) *Service {
+	return &Service{
+		sessions: sessions,
+		settings: settings,
+	}
+}
+
+// NewServiceWithBaselineRestorer wires the native rollback owner into the
+// generation service. The plain constructor remains useful for isolated
+// generation work, while the CLI's discard command must restore the original
+// theme and background before returning to configuration.
+func NewServiceWithBaselineRestorer(
+	sessions *session.Store,
+	settings *settingspkg.Store,
+	omarchy session.Omarchy,
+) *Service {
+	return &Service{
+		sessions: sessions,
+		settings: settings,
+		omarchy:  omarchy,
+	}
+}
+
+func (s *Service) Generate(
+	ctx context.Context,
+	request Request,
+) (Result, error) {
+	record, err := s.loadActiveRecord(request.SessionID)
+	if err != nil {
+		return Result{}, fmt.Errorf(
+			"load session: %w",
+			err,
+		)
+	}
+	if record.ApplyPhase != session.ApplyPhaseNone {
+		return Result{}, fmt.Errorf("%w: cannot generate while phase is %q", session.ErrApplyInProgress, record.ApplyPhase)
+	}
+	shellStyle := session.NormalizeShellStyle(record.ShellStyle)
+	desktopStyle := session.NormalizeDesktopStyle(record.DesktopStyle)
+	barStyle := session.NormalizeBarStyle(record.BarStyle)
+	animationsStyle := session.NormalizeAnimationsStyle(record.AnimationsStyle)
+	lookFeel := session.NormalizeLookFeelDocument(record.LookFeel)
+	terminalTranslucency := session.NormalizeTerminalTranslucency(record.TerminalTranslucency)
+	if request.Configuration != nil {
+		configuration := *request.Configuration
+		configuration.ShellStyle = session.NormalizeShellStyle(configuration.ShellStyle)
+		configuration.DesktopStyle = session.NormalizeDesktopStyle(configuration.DesktopStyle)
+		configuration.BarStyle = session.NormalizeBarStyle(configuration.BarStyle)
+		configuration.AnimationsStyle = session.NormalizeAnimationsStyle(configuration.AnimationsStyle)
+		configuration.LookFeel = session.NormalizeLookFeelDocument(configuration.LookFeel)
+		configuration.Terminal = session.NormalizeTerminalTranslucency(configuration.Terminal)
+		if !configuration.ShellStyle.Valid() {
+			return Result{}, fmt.Errorf("invalid shell style configuration")
+		}
+		if !configuration.DesktopStyle.Valid() {
+			return Result{}, fmt.Errorf("invalid desktop style configuration")
+		}
+		if !configuration.BarStyle.Valid() {
+			return Result{}, fmt.Errorf("invalid bar style configuration")
+		}
+		if !configuration.AnimationsStyle.Valid() {
+			return Result{}, fmt.Errorf("invalid animations style configuration")
+		}
+		if !configuration.LookFeel.Valid() {
+			return Result{}, fmt.Errorf("invalid Look & Feel configuration")
+		}
+		if !configuration.Terminal.Valid() {
+			return Result{}, fmt.Errorf("invalid terminal translucency configuration")
+		}
+		request.Configuration = &configuration
+		shellStyle = configuration.ShellStyle
+		desktopStyle = configuration.DesktopStyle
+		barStyle = configuration.BarStyle
+		animationsStyle = configuration.AnimationsStyle
+		lookFeel = configuration.LookFeel
+		terminalTranslucency = configuration.Terminal
+	} else if !record.ExtraConfigs {
+		shellStyle = session.ShellStyle{}
+		desktopStyle = session.DesktopStyle{}
+		barStyle = session.BarStyle{}
+		animationsStyle = session.AnimationsStyle{}
+		lookFeel = session.LookFeelDocument{}
+		terminalTranslucency = session.TerminalTranslucency{}
+	} else if !shellStyle.Valid() {
+		shellStyle = session.DefaultShellStyle()
+	}
+
+	effectiveSettings, err := s.settings.Load()
+	if err != nil {
+		return Result{}, fmt.Errorf("load settings: %w", err)
+	}
+	effectiveSettings, err = settingspkg.ApplyOverrides(
+		effectiveSettings,
+		request.Overrides,
+	)
+	if err != nil {
+		return Result{}, fmt.Errorf("apply generation overrides: %w", err)
+	}
+
+	var basePalette *theme.Palette
+	var sourceThemeDir string
+	if record.Workflow == "theme-edit" && request.SourceImage == "" {
+		if record.GenerationID == "" {
+			return Result{}, fmt.Errorf("theme-edit session has no source generation")
+		}
+		sourceThemeDir = filepath.Join(s.sessions.SessionDir(request.SessionID), "generations", record.GenerationID, "source")
+		palette, paletteErr := theme.ReadColors(sourceThemeDir)
+		if paletteErr != nil {
+			return Result{}, fmt.Errorf("read theme-edit source palette: %w", paletteErr)
+		}
+		basePalette = &palette
+		request.SourceImage, err = findThemeBackground(sourceThemeDir)
+		if err != nil {
+			return Result{}, err
+		}
+	}
+	if err := validateSourceImage(request.SourceImage); err != nil {
+		return Result{}, err
+	}
+
+	analysis, err := imageanalysis.DecodeFile(request.SourceImage)
+	if err != nil {
+		return Result{}, fmt.Errorf(
+			"analyze source image: %w",
+			err,
+		)
+	}
+
+	generationID, err := newGenerationID()
+	if err != nil {
+		return Result{}, fmt.Errorf(
+			"create generation id: %w",
+			err,
+		)
+	}
+
+	generationsRoot := filepath.Join(
+		s.sessions.SessionDir(request.SessionID),
+		"generations",
+	)
+
+	if err := fsutil.EnsureDir(generationsRoot, 0o755); err != nil {
+		return Result{}, fmt.Errorf(
+			"create generations directory: %w",
+			err,
+		)
+	}
+	if err := fsutil.CleanupStaleTempDirs(generationsRoot, 24*time.Hour, time.Now().UTC()); err != nil {
+		return Result{}, fmt.Errorf("cleanup stale generations: %w", err)
+	}
+
+	tmpRoot := filepath.Join(
+		generationsRoot,
+		"."+generationID+".tmp",
+	)
+
+	finalRoot := filepath.Join(
+		generationsRoot,
+		generationID,
+	)
+
+	if err := fsutil.EnsureDir(tmpRoot, 0o755); err != nil {
+		return Result{}, fmt.Errorf(
+			"create temporary generation: %w",
+			err,
+		)
+	}
+
+	committed := false
+
+	defer func() {
+		if !committed {
+			_ = fsutil.RemoveAllAndSync(tmpRoot)
+		}
+	}()
+
+	cachedSource, err := cacheSourceImage(
+		tmpRoot,
+		request.SourceImage,
+	)
+	if err != nil {
+		return Result{}, err
+	}
+
+	if err := runJobsWithBasePalette(
+		ctx, tmpRoot, cachedSource, analysis, effectiveSettings, shellStyle, desktopStyle, barStyle, animationsStyle,
+		basePalette,
+		compositionInput{lookFeel: lookFeel, terminal: terminalTranslucency},
+	); err != nil {
+		return Result{}, err
+	}
+	if basePalette != nil {
+		// Keep theme-owned files that the generator does not synthesize (icons,
+		// app templates, hooks, and custom assets) in every derived variant.
+		for _, variant := range orderedVariants {
+			if err := copyMissingTree(sourceThemeDir, filepath.Join(tmpRoot, string(variant))); err != nil {
+				return Result{}, fmt.Errorf("preserve theme files for %s: %w", variant, err)
+			}
+		}
+	}
+	if err := fsutil.SyncDir(tmpRoot); err != nil {
+		return Result{}, fmt.Errorf("sync temporary generation: %w", err)
+	}
+
+	committed, err = s.commitGeneration(tmpRoot, finalRoot, request, generationID)
+	if err != nil {
+		return Result{}, fmt.Errorf("commit generation: %w", err)
+	}
+	if !committed {
+		return Result{}, fmt.Errorf("commit generation: no changes committed")
+	}
+
+	return buildResult(
+		generationID,
+		finalRoot,
+		effectiveSettings,
+	), nil
+}
+
+func (s *Service) loadActiveRecord(sessionID string) (session.Record, error) {
+	lock, err := fsutil.AcquireFileLock(s.sessions.MutationLockPath())
+	if err != nil {
+		return session.Record{}, fmt.Errorf("acquire session mutation lock: %w", err)
+	}
+	defer lock.Close()
+	active, exists, err := s.sessions.LoadActive()
+	if err != nil {
+		return session.Record{}, fmt.Errorf("load active session: %w", err)
+	}
+	if !exists || active.SessionID != sessionID {
+		return session.Record{}, session.ErrSessionNotActive
+	}
+	record, err := s.sessions.Load(sessionID)
+	if err != nil {
+		return session.Record{}, fmt.Errorf("load session: %w", err)
+	}
+	if record.ApplyPhase != session.ApplyPhaseNone {
+		return session.Record{}, fmt.Errorf("%w: cannot generate while phase is %q", session.ErrApplyInProgress, record.ApplyPhase)
+	}
+	return record, nil
+}
+
+func (s *Service) commitGeneration(tmpRoot, finalRoot string, request Request, generationID string) (bool, error) {
+	lock, err := fsutil.AcquireFileLock(s.sessions.MutationLockPath())
+	if err != nil {
+		return false, fmt.Errorf("acquire session mutation lock: %w", err)
+	}
+	defer lock.Close()
+	active, exists, err := s.sessions.LoadActive()
+	if err != nil {
+		return false, fmt.Errorf("load active session: %w", err)
+	}
+	if !exists || active.SessionID != request.SessionID {
+		return false, session.ErrSessionNotActive
+	}
+	record, err := s.sessions.Load(request.SessionID)
+	if err != nil {
+		return false, fmt.Errorf("reload session after generation: %w", err)
+	}
+	if record.ApplyPhase != session.ApplyPhaseNone {
+		return false, fmt.Errorf("%w: cannot commit generation while phase is %q", session.ErrApplyInProgress, record.ApplyPhase)
+	}
+	renamed, err := fsutil.RenameAndSyncNoReplace(tmpRoot, finalRoot)
+	if !renamed {
+		return false, err
+	}
+	if err != nil {
+		_ = fsutil.RemoveAllAndSync(finalRoot)
+		return false, err
+	}
+	if record.Workflow != "theme-edit" {
+		record.SourceImage = request.SourceImage
+	}
+	record.GenerationID = generationID
+	record.PreviewVariant = ""
+	if request.Configuration != nil {
+		record.ExtraConfigs = true
+		record.ShellStyle = request.Configuration.ShellStyle
+		record.DesktopStyle = request.Configuration.DesktopStyle
+		record.BarStyle = request.Configuration.BarStyle
+		record.AnimationsStyle = request.Configuration.AnimationsStyle
+		record.LookFeel = request.Configuration.LookFeel
+		record.TerminalTranslucency = request.Configuration.Terminal
+	}
+	if err := s.sessions.Save(record); err != nil {
+		_ = fsutil.RemoveAllAndSync(finalRoot)
+		return false, fmt.Errorf("persist generation progress: %w", err)
+	}
+	return true, nil
+}
+
+type jobResult struct {
+	variant Variant
+	err     error
+}
+
+type compositionInput struct {
+	lookFeel session.LookFeelDocument
+	terminal session.TerminalTranslucency
+}
+
+func runJobs(
+	ctx context.Context,
+	generationRoot string,
+	sourceImage string,
+	analysis *imageanalysis.Analysis,
+	effectiveSettings settingspkg.Settings,
+	shellStyle session.ShellStyle,
+	desktopStyle session.DesktopStyle,
+	barStyle session.BarStyle,
+	animationsStyle session.AnimationsStyle,
+	composition ...compositionInput,
+) error {
+	return runJobsWithBasePalette(ctx, generationRoot, sourceImage, analysis, effectiveSettings, shellStyle, desktopStyle, barStyle, animationsStyle, nil, composition...)
+}
+
+func runJobsWithBasePalette(
+	ctx context.Context,
+	generationRoot string,
+	sourceImage string,
+	analysis *imageanalysis.Analysis,
+	effectiveSettings settingspkg.Settings,
+	shellStyle session.ShellStyle,
+	desktopStyle session.DesktopStyle,
+	barStyle session.BarStyle,
+	animationsStyle session.AnimationsStyle,
+	basePalette *theme.Palette,
+	composition ...compositionInput,
+) error {
+	var lookFeel session.LookFeelDocument
+	var terminal session.TerminalTranslucency
+	if len(composition) > 0 {
+		lookFeel = composition[0].lookFeel
+		terminal = composition[0].terminal
+	}
+	parentCtx := ctx
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	results := make(
+		chan jobResult,
+		len(orderedVariants),
+	)
+
+	var wg sync.WaitGroup
+
+	for _, variant := range orderedVariants {
+		variant := variant
+
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			err := (job{
+				variant:         variant,
+				sourceImage:     sourceImage,
+				basePalette:     basePalette,
+				analysis:        analysis,
+				settings:        effectiveSettings,
+				shellStyle:      shellStyle,
+				desktopStyle:    desktopStyle,
+				barStyle:        barStyle,
+				animationsStyle: animationsStyle,
+				lookFeel:        lookFeel,
+				terminal:        terminal,
+			}).run(
+				ctx,
+				generationRoot,
+			)
+			if err != nil {
+				cancel()
+			}
+
+			results <- jobResult{
+				variant: variant,
+				err:     err,
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(results)
+
+	errorsByVariant := make(map[Variant]error, len(orderedVariants))
+	for result := range results {
+		errorsByVariant[result.variant] = result.err
+	}
+	parentErr := parentCtx.Err()
+	for _, variant := range orderedVariants {
+		err := errorsByVariant[variant]
+		if err == nil || errors.Is(err, context.Canceled) || (parentErr != nil && errors.Is(err, parentErr)) {
+			continue
+		}
+		return fmt.Errorf("%s job: %w", variant, err)
+	}
+	if parentErr != nil {
+		return parentErr
+	}
+	for _, variant := range orderedVariants {
+		if err := errorsByVariant[variant]; err != nil {
+			return fmt.Errorf("%s job: %w", variant, err)
+		}
+	}
+	return nil
+}
+
+func validateSourceImage(
+	path string,
+) error {
+	if path == "" {
+		return fmt.Errorf(
+			"source image is required",
+		)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf(
+			"stat source image: %w",
+			err,
+		)
+	}
+
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf(
+			"source image is not a regular file",
+		)
+	}
+	if info.Size() > fsutil.MaxFileBytes {
+		return fmt.Errorf(
+			"source image exceeds %d bytes: %w",
+			fsutil.MaxFileBytes,
+			fsutil.ErrFileTooLarge,
+		)
+	}
+
+	return nil
+}
+
+func newGenerationID() (string, error) {
+	var random [4]byte
+
+	if _, err := rand.Read(
+		random[:],
+	); err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf(
+		"%s-%s",
+		time.Now().UTC().Format(
+			"20060102T150405Z",
+		),
+		hex.EncodeToString(random[:]),
+	), nil
+}
+
+func buildResult(
+	generationID string,
+	root string,
+	effectiveSettings settingspkg.Settings,
+) Result {
+	result := Result{
+		GenerationID: generationID,
+		Settings:     effectiveSettings,
+		Variants: make(
+			[]VariantResult,
+			0,
+			len(orderedVariants),
+		),
+	}
+
+	for _, variant := range orderedVariants {
+		result.Variants = append(
+			result.Variants,
+			VariantResult{
+				Variant: variant,
+				Path: filepath.Join(
+					root,
+					string(variant),
+				),
+			},
+		)
+	}
+
+	return result
+}

@@ -1,0 +1,52 @@
+{
+  "metadata": {
+    "name": "Unknown",
+    "brand": "Topre",
+    "author": "tplai",
+    "supportsKeyUp": true,
+    "category": "keyboard"
+  },
+  "license": {
+    "type": "MIT",
+    "url": "https://github.com/tplai/kbsim/blob/master/LICENSE.md"
+  },
+  "sounds": {
+    "default": {
+      "down": [
+        "1.wav",
+        "2.wav",
+        "3.wav",
+        "4.wav",
+        "5.wav"
+      ],
+      "up": [
+        "101.wav"
+      ]
+    },
+    "space": {
+      "down": [
+        "201.wav"
+      ],
+      "up": [
+        "251.wav"
+      ]
+    },
+    "enter": {
+      "down": [
+        "301.wav"
+      ],
+      "up": [
+        "351.wav"
+      ]
+    },
+    "backspace": {
+      "down": [
+        "401.wav"
+      ],
+      "up": [
+        "451.wav"
+      ]
+    }
+  },
+  "id": "ab2657fe-dc0a-4c75-ab74-81d8f56002b0"
+}

@@ -1,0 +1,2253 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Io
+import qs.Commons
+import qs.Ui
+import "panel/Presentation.js" as Presentation
+import "panel/dialogs" as Dialogs
+import "panel/layout" as Arrange
+import "panel/plugin" as Plugin
+import "panel/updates" as Updates
+
+// Plugin manager popup: lists every discovered plugin (first-party omarchy +
+// third-party) with an enable/disable switch. The list is read from the
+// `omarchy plugin list --json`, the same public source used by Omarchy's
+// plugin command. Actions go back through the matching CLI commands.
+Panel {
+  id: root
+  moduleName: "omaplug"
+  ipcTarget: "omaplug"
+  manageIpc: false
+
+  property var anchorItem: null
+  property var hostWidget: null
+  readonly property var barIdentity: hostWidget || root
+
+  readonly property color contentForeground: bar ? bar.foreground : Color.foreground
+  readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
+  // Overlays cover the popup's own card, so they match the popup background.
+  readonly property color panelBackground: Color.popups.background
+
+  // ------------------------------------------------------------------ plugins
+
+  property var pluginRows: []
+  property var nestedWidgetIds: ({})
+  property Process pluginConfigProcess: Process {
+    onExited: function(exitCode) {
+      if (exitCode === 0) root.applyPluginConfig(pluginConfigStdout.text)
+    }
+    stdout: StdioCollector { id: pluginConfigStdout; waitForEnd: true }
+  }
+  property Process pluginListProcess: Process {
+    onExited: function(exitCode) {
+      if (exitCode === 0) root.applyPluginList(pluginListStdout.text)
+      else root.pluginRows = []
+    }
+    stdout: StdioCollector {
+      id: pluginListStdout
+      waitForEnd: true
+    }
+  }
+  property Process pluginToggleProcess: Process {
+    onExited: function(exitCode) {
+      if (exitCode !== 0) console.warn("Could not change plugin state")
+      root.refreshPlugins()
+    }
+  }
+  property Process pluginManifestProcess: Process {
+    onExited: function(exitCode) {
+      if (exitCode === 0) root.applyPluginMetadata(pluginManifestStdout.text)
+    }
+    stdout: StdioCollector {
+      id: pluginManifestStdout
+      waitForEnd: true
+    }
+  }
+
+  // Git remote URLs for updatable plugins, keyed by sourceKey. Filled by a
+  // background `git remote get-url` scan so each row can offer a repo link.
+  property var pluginRepos: ({})
+  property bool reposScanning: false
+
+  // Marketplace listing info keyed by plugin id: { verified, snapshotCommit,
+  // snapshotStatus }. Fetched from the public catalog so rows can show a
+  // verification badge and a "View on marketplace" link for listed plugins.
+  property var marketplaceMap: ({})
+  property bool marketplaceFetching: false
+  property bool marketplaceFetchFailed: false
+  property string marketplaceFetchedAt: ""
+  property string marketplaceHelperPath: ""
+
+  // Local HEAD commit for every git-managed plugin dir, keyed by folder name.
+  // Filled alongside the repo remote scan so rows can compare the installed
+  // code against the marketplace listing's snapshot-checked commit.
+  property var pluginCommits: ({})
+
+  function marketplaceEntry(id) {
+    return root.marketplaceMap[String(id)] || null
+  }
+  // GitHub compare URL from the listing's snapshot-checked commit to the
+  // locally installed commit. Only http(s) GitHub remotes are eligible, since
+  // this URL goes to the browser.
+  function compareUrlFor(sourceKey, fromSha, toSha) {
+    return Presentation.compareUrl(root.pluginRepos[sourceKey], fromSha, toSha)
+  }
+  // "What's new" link for a plugin with an available update: prefer the
+  // marketplace release page (release notes), otherwise the GitHub compare
+  // from the installed commit to the latest observed upstream commit.
+  function whatsNewUrlFor(sourceKey, id) {
+    var entry = root.marketplaceEntry(String(id))
+    if (entry && typeof entry.releaseUrl === "string" && entry.releaseUrl !== "")
+      return entry.releaseUrl
+    var local = root.pluginCommits[String(sourceKey)] || ""
+    var upstream = (entry && typeof entry.upstreamCommit === "string") ? entry.upstreamCommit : ""
+    return root.compareUrlFor(sourceKey, local, upstream)
+  }
+
+  property string searchText: ""
+  property int filterMode: 2 // 0 all, 1 omarchy, 2 third-party, 4 adna
+  property string filterKind: "" // "" all types, else a kind like bar-widget
+
+  // Kind choices derived from what is actually installed, so the dropdown
+  // only offers types the user can really filter by.
+  // Canonical Omarchy plugin kinds (Quattro contract). Anything outside this
+  // list is grouped under "Other".
+  // Canonical Omarchy plugin kinds (Quattro contract) with display labels,
+  // in fixed dropdown order. Anything outside this list groups under Other.
+  readonly property var knownKinds: [
+    { value: "bar-widget", label: "Bar Widget" },
+    { value: "panel", label: "Panel" },
+    { value: "overlay", label: "Overlay" },
+    { value: "menu", label: "Menu" },
+    { value: "service", label: "Service" },
+    { value: "bar", label: "Bar" }
+  ]
+
+  readonly property var kindOptions: {
+    var installed = {}
+    var hasOther = false
+    for (var i = 0; i < root.pluginRows.length; i++) {
+      var parts = String(root.pluginRows[i].kinds || "").split(", ")
+      for (var j = 0; j < parts.length; j++) {
+        var k = parts[j].trim()
+        if (k === "") continue
+        var canonical = false
+        for (var n = 0; n < root.knownKinds.length; n++) {
+          if (root.knownKinds[n].value === k) { canonical = true; break }
+        }
+        if (canonical) installed[k] = true
+        else hasOther = true
+      }
+    }
+    var opts = [{ value: "", label: "All types" }]
+    for (var m = 0; m < root.knownKinds.length; m++) {
+      if (installed[root.knownKinds[m].value] === true)
+        opts.push({ value: root.knownKinds[m].value, label: root.knownKinds[m].label })
+    }
+    if (hasOther) opts.push({ value: "_other", label: "Other" })
+    return opts
+  }
+
+  function rowMatchesKind(p) {
+    if (root.filterKind === "") return true
+    var kinds = String(p.kinds || "").split(", ")
+    if (root.filterKind === "_other") {
+      for (var i = 0; i < kinds.length; i++) {
+        var k = kinds[i].trim()
+        if (k === "") continue
+        var canonical = false
+        for (var n = 0; n < root.knownKinds.length; n++) {
+          if (root.knownKinds[n].value === k) { canonical = true; break }
+        }
+        if (!canonical) return true
+      }
+      return false
+    }
+    return kinds.indexOf(root.filterKind) !== -1
+  }
+
+  // Background auto-check: whether to poll for updates without the panel
+  // being opened, and how often. Persisted in this widget's shell.json entry
+  // so the choice survives shell restarts and is per-user, not per-checkout.
+  // Mirrored verbatim in tests/AutoCheckLogic.qml; keep both copies
+  // identical, or auto-check-test.sh's sync guard will fail the build.
+  // AUTOCHECK-SETTINGS-BEGIN
+  readonly property bool autoCheckEnabled: root.setting("autoCheckUpdates", false) === true
+  // real, not int: an int property truncates any fractional hours value
+  // (e.g. 0.5) towards zero, which would silently turn into a zero-interval
+  // Timer below and spin checkUpdates() in a tight loop.
+  readonly property real autoCheckIntervalHours: {
+    var hours = Number(root.setting("autoCheckIntervalHours", 6))
+    return (isFinite(hours) && hours > 0) ? hours : 6
+  }
+  // AUTOCHECK-SETTINGS-END
+
+  function persistAutoCheckSetting(values) {
+    if (autoCheckSettingsProcess.running) return
+    var key = Object.keys(values)[0]
+    autoCheckSettingsProcess.command = ["omarchy", "bar", "set", root.moduleName,
+      key, JSON.stringify(values[key]), "--json"]
+    autoCheckSettingsProcess.pendingValues = values
+    autoCheckSettingsProcess.running = true
+  }
+
+  property Process autoCheckSettingsProcess: Process {
+    property var pendingValues: ({})
+    onExited: function(exitCode) {
+      if (exitCode === 0) root.applyAutoCheckSettings(pendingValues)
+      else root.updateSummary = "Could not save automatic update settings."
+    }
+  }
+
+  function applyAutoCheckSettings(values) {
+    var entry = { id: root.moduleName }
+    for (var existing in root.settings) if (existing !== "id") entry[existing] = root.settings[existing]
+    for (var key in values) entry[key] = values[key]
+
+    root.settings = entry
+    if (root.hostWidget && "settings" in root.hostWidget) root.hostWidget.settings = entry
+  }
+
+  function setAutoCheckEnabled(value) {
+    root.persistAutoCheckSetting({ autoCheckUpdates: value === true })
+  }
+
+  function setAutoCheckIntervalHours(hours) {
+    var value = Number(hours)
+    if (!isFinite(value) || value <= 0) return
+    root.persistAutoCheckSetting({ autoCheckIntervalHours: value })
+  }
+
+  // Update checking state, keyed by the plugin folder name (sourceKey).
+  property var updateStates: ({})
+  property bool checkingUpdates: false
+  property bool updatingAll: false
+  property string updateSummary: ""
+  property string updatingId: ""
+  // Detached update-runner plumbing (from PR #1): the helper survives the
+  // plugin reload that a successful update triggers, and the newly loaded
+  // panel reconnects to the same job via this runtime status file.
+  property string updateHelperPath: ""
+  property string updateRunnerPath: ""
+  readonly property string runtimeStatePath: String(Qt.resolvedUrl("runtime-state.py")).replace(/^file:\/\//, "")
+  // Wraps plugin-state.sh with a lock+cache so the omaplug instance on each
+  // monitor's bar doesn't independently re-fetch every plugin's remote when
+  // the background timer (not a user click) is what triggered the check.
+  property string autoCheckCoordinatorPath: ""
+  readonly property string updateStateRoot: {
+    var runtime = Quickshell.env("XDG_RUNTIME_DIR")
+    return runtime && runtime !== ""
+      ? runtime + "/omaplug"
+      : (Quickshell.env("XDG_CACHE_HOME") || Quickshell.env("HOME") + "/.cache") + "/omaplug"
+  }
+  readonly property string updateStatusPath: root.updateStateRoot + "/update.status"
+  readonly property int completedUpdateJobMaxAgeSeconds: 300
+  property bool updateDetachedRunning: false
+  property bool updateAwaitingStart: false
+  property string updateExpectedJobId: ""
+  property string updateProbePid: ""
+  property int updateDeadProbeCount: 0
+  // Full-page "check for updates" view (replaces the header inline progress).
+  property bool updatesPageOpen: false
+  // Streaming parse state for per-plugin progress.
+  property string updateCheckLineBuf: ""
+  property int updateCheckProcessed: 0
+  property var updateCheckSeen: ({})
+
+  property bool installDialogOpen: false
+  property bool installRunning: false
+  property bool installFailed: false
+  property string installResult: ""
+  // Confirm popup shown before running install: makes the disabled-by-default
+  // policy explicit. installPendingUrl carries the extracted URL.
+  property bool installConfirmOpen: false
+  property string installPendingUrl: ""
+  // Status file for the detached installer. The file is created securely
+  // via mktemp (XDG_RUNTIME_DIR) so the helper can truncate it without
+  // following an attacker-controlled symlink. The plugin is installed but
+  // not enabled by default — user must enable manually after reviewing.
+  property string installStatusPath: ""
+  property bool installDetachedRunning: false
+
+  // Plugin removal state. Each row gets a trash button for a single remove, and
+  // a select mode (check list) removes several at once via a sequential queue.
+  property var removeSelection: ({})
+  property bool removeSelectMode: false
+  property string removeSummary: ""
+  property string moveSummary: ""
+  property var removeQueue: []
+  property bool removingPlugin: false
+  property bool removeConfirmOpen: false
+  property var removePending: []
+  // Confirmation before restarting the shell: clears the QML compile cache and
+  // relaunches the shell so plugins reload from source (fixes stale compiled
+  // plugin QML that a live rescan would keep serving).
+  property bool restartConfirmOpen: false
+  // Bar-layout board (drag-and-drop ordering across left/center/right).
+  property bool layoutPageOpen: false
+  readonly property var barLayoutSections: root.layoutSections()
+  // Right-click context menu on a main-page row.
+  property bool rowMenuOpen: false
+  property string rowMenuId: ""
+  property var rowMenuPos: ({ x: 0, y: 0 })
+  onInstallDialogOpenChanged: {
+    if (root.installDialogOpen) {
+      root.installRunning = false
+      root.installFailed = false
+      root.installResult = ""
+    } else {
+      root.installConfirmOpen = false
+      root.installPendingUrl = ""
+    }
+  }
+
+  property Timer checkWatchdog: Timer {
+    interval: 60000
+    repeat: false
+    onTriggered: {
+      console.log("checkWatchdog timeout, process running=", root.updateCheckProcess.running)
+      if (!root.checkingUpdates) return
+      if (root.updateCheckProcess.running)
+        root.updateCheckProcess.signal(15)
+      root.checkingUpdates = false
+      root.updateSummary = "Check timed out — a repository may be unreachable"
+    }
+  }
+
+  // Detached install helpers have no live process handle here (setsid/nohup
+  // survives the plugin reload that unloads this panel), so a helper that
+  // dies mid-install would otherwise leave the dialog stuck on "Installing…"
+  // forever. Bound the wait; git clones can be slow, so allow three minutes.
+  property Timer installWatchdog: Timer {
+    interval: 180000
+    repeat: false
+    onTriggered: {
+      if (!root.installDetachedRunning && !root.installRunning) return
+      root.installDetachedRunning = false
+      root.installRunning = false
+      root.installFailed = true
+      root.installResult = "Install timed out"
+      root.installStatusPath = ""
+    }
+  }
+
+  // Pull the icon glyph straight from the plugin's live bar widget. Each
+  // module slot on the bar holds the instantiated BarWidget, whose button
+  // carries the author's `text` glyph. This stays in sync with what the bar
+  // actually renders (no hardcoded copy to drift).
+  property var _glyphCache: ({})
+  function invalidateGlyphCache() { root._glyphCache = {} }
+
+  function liveGlyphFor(id) {
+    if (root._glyphCache[id] !== undefined) return root._glyphCache[id]
+    var glyph = liveGlyphForUncached(id)
+    root._glyphCache[id] = glyph
+    return glyph
+  }
+
+  function liveGlyphForUncached(id) {
+    var bar = root.bar
+    if (!bar || !bar.moduleSlots) return ""
+    var slots = bar.moduleSlots
+    for (var i = 0; i < slots.length; i++) {
+      var slot = slots[i]
+      if (!slot || slot.moduleName !== id) continue
+      var item = slot.activeItem
+      if (!item) continue
+      var glyph = buttonGlyphIn(item)
+      if (glyph) return glyph
+    }
+    return ""
+  }
+
+  // Depth-first walk of a widget's children looking for a bar button
+  // (WidgetButton or its BarIconButton subclass, both exposing `text` and
+  // `labelVisible`); returns its rendered text glyph.
+  function buttonGlyphIn(item) {
+    var stack = [item]
+    while (stack.length > 0) {
+      var node = stack.pop()
+      if (!node) continue
+      if (typeof node.text === "string" && node.text !== ""
+          && (typeof node.slotSize === "number" || typeof node.labelVisible === "boolean")) {
+        return node.text
+      }
+      // QObject::data is not bindable; reading it while iconFor() participates
+      // in a Text binding makes Qt warn on every refresh. Bar buttons are
+      // visual items, so the bindable visual-child tree is the right scope.
+      var children = node.children
+      if (children) {
+        for (var j = 0; j < children.length; j++) stack.push(children[j])
+      }
+    }
+    return ""
+  }
+
+  // A bar-button label can combine an icon with live state (durations,
+  // counters, temperatures, etc.). Keep only a leading Nerd Font glyph so
+  // that status text never leaks into a fixed-size plugin icon tile.
+  function leadingIconGlyph(text) {
+    var s = String(text || "")
+    if (s.length === 0) return ""
+
+    var first = s.charCodeAt(0)
+    if (first >= 0xE000 && first <= 0xF8FF) return s.charAt(0)
+    if (first < 0xD800 || first > 0xDBFF || s.length < 2) return ""
+
+    var second = s.charCodeAt(1)
+    if (second < 0xDC00 || second > 0xDFFF) return ""
+    var codePoint = (first - 0xD800) * 0x400 + second - 0xDC00 + 0x10000
+    // Nerd Font's supplementary glyphs are in the Supplementary Private Use
+    // Areas (planes 15 and 16). Do not turn arbitrary emoji into row icons.
+    return codePoint >= 0xF0000 && codePoint <= 0x10FFFD ? s.substring(0, 2) : ""
+  }
+
+  function iconFor(id) {
+    var map = {
+      "omaplug":            "\udb85\udcd9",
+      "adna.bar":            "\uf2f2",
+      "adna.bar-switch":     "\uf2f2",
+      "adna.clock":          "\uf017",
+      "adna.dynamic.island": "\uf5bb",
+      "adna.menu":           "\ue900",
+      "adna.notifications":  "\uf0f3",
+      "adna.weather":        "\uf6c3",
+      "hark":                "\uf130",
+      "omaconnect":          "\uf1eb",
+      "hl.peripheral_battery": "\uf241",
+      "io.weirdware.blueferry": "\uf56f",
+      "com.aktivesolutions.bw-vault": "\uf3ed",
+      "io.github.bmontythe3rd.display-manager": "\uf108",
+      "io.github.sirjul1337.lock-explorer": "\uf023",
+      "io.github.thisisgm.cliampui": "\uf026",
+      "markbusai.opencode-usage": "\uf11b",
+      "stappmus.activity-monitor": "\uf080",
+      "syntaxboybe.fluxcast": "\uf043",
+      "omarchy.agents":      "\uf544",
+      "omarchy.background":  "\uf03e",
+      "omarchy.bar":         "\uf0c9",
+      "omarchy.clipboard":   "\uf328",
+      "omarchy.dev-gallery": "\uf121",
+      "omarchy.emojis":      "\uf118",
+      "omarchy.image-picker": "\uf030",
+      "omarchy.lock":        "\uf023",
+      "omarchy.notifications": "\uf0f3",
+      "omarchy.osd":         "\uf163",
+      "omarchy.polkit":      "\uf3ed",
+      "omarchy.reminders":   "\uf017"
+    }
+    if (/clock/i.test(String(id))) return "\uf017"
+    var live = root.leadingIconGlyph(root.liveGlyphFor(id))
+    if (live) return live
+    return map[id] || ""
+  }
+
+  readonly property var visibleRows: root.pluginRows.filter(function(p) {
+    if (root.removeSelectMode && p.firstParty) return false
+    if (root.filterMode === 1 && !p.firstParty) return false
+    if (root.filterMode === 2 && p.firstParty) return false
+    if (root.filterMode === 4 && String(p.id).indexOf("adna.") !== 0) return false
+    if (!root.rowMatchesKind(p)) return false
+    var q = root.searchText.trim().toLowerCase()
+    if (q === "") return true
+    return String(p.name || "").toLowerCase().indexOf(q) !== -1
+      || String(p.description || "").toLowerCase().indexOf(q) !== -1
+      || String(p.id || "").toLowerCase().indexOf(q) !== -1
+      || String(p.author || "").toLowerCase().indexOf(q) !== -1
+      || String(p.kinds || "").toLowerCase().indexOf(q) !== -1
+  })
+
+  // Plugins with a git remote (what update actually applies to). Local /
+  // dev plugins without a remote are skipped from the update list.
+  readonly property var updateCheckRows: root.pluginRows.filter(function(p) {
+    return p.updatable && root.pluginRepos[String(p.sourceKey)] !== undefined
+  })
+
+  function updateErrorSuffix(count) {
+    return count > 0 ? " (" + count + " error" + (count === 1 ? "" : "s") + ")" : ""
+  }
+
+  // Mirrored verbatim in tests/AutoCheckLogic.qml; keep both copies
+  // identical, or auto-check-test.sh's sync guard will fail the build.
+  // PENDING-UPDATE-COUNT-BEGIN
+  readonly property int pendingUpdateCount: {
+    var n = 0
+    for (var k in root.updateStates) {
+      if (root.pluginRepos[k] === undefined) continue
+      if (root.updateStates[k] === "UPDATE") n++
+    }
+    n
+  }
+  // PENDING-UPDATE-COUNT-END
+
+  readonly property int enabledPluginCount: {
+    var n = 0
+    for (var i = 0; i < root.pluginRows.length; i++)
+      if (root.pluginEnabled(root.pluginRows[i].id)) n++
+    n
+  }
+
+  readonly property string headerSummary: {
+    var parts = []
+    parts.push(root.pluginRows.length + " plugins")
+    parts.push(root.enabledPluginCount + " enabled")
+    if (root.pendingUpdateCount > 0)
+      parts.push(root.pendingUpdateCount + " update" + (root.pendingUpdateCount > 1 ? "s" : "") + " available")
+    parts.join(" · ")
+  }
+
+  readonly property int selectedRemoveCount: {
+    var n = 0
+    for (var k in root.removeSelection) if (root.removeSelection[k]) n++
+    n
+  }
+
+  function toggleRemoveSelection(id) {
+    var sel = root.removeSelection
+    var next = {}
+    for (var k in sel) next[k] = sel[k]
+    if (next[id] === true) delete next[id]
+    else next[id] = true
+    root.removeSelection = next
+  }
+
+  function removePlugin(id) {
+    root.removePending = [id]
+    root.removeConfirmOpen = true
+  }
+
+  function removeSelected() {
+    var ids = []
+    for (var k in root.removeSelection) if (root.removeSelection[k]) ids.push(k)
+    if (ids.length === 0) return
+    root.removePending = ids
+    root.removeConfirmOpen = true
+  }
+
+  function confirmRemove() {
+    root.keepOpenAcrossRebuild()
+    root.removeQueue = root.removePending.slice()
+    root.removePending = []
+    root.removeConfirmOpen = false
+    root.removeNext()
+  }
+
+  function cancelRemove() {
+    root.removePending = []
+    root.removeConfirmOpen = false
+  }
+
+  function requestRestartShell() {
+    root.restartConfirmOpen = true
+  }
+
+  function cancelRestartShell() {
+    root.restartConfirmOpen = false
+  }
+
+  // Clear the QML compile cache and restart the shell. The shell dies as part
+  // of the restart, so the whole job is detached with setsid/nohup and the
+  // Process that fires it exits immediately.
+  function confirmRestartShell() {
+    root.restartConfirmOpen = false
+    var script = 'rm -rf "$HOME/.cache/quickshell/qmlcache" "$HOME/.cache/quickshell"/qtpipelinecache-*; omarchy-restart-shell'
+    restartShellProcess.command = ["bash", "-c",
+      'setsid nohup bash -c "$0" >/dev/null 2>&1 &', script]
+    restartShellProcess.running = true
+  }
+
+  function removeNext() {
+    if (root.removeQueue.length === 0) {
+      root.removingPlugin = false
+      root.removeSelection = {}
+      root.removeSummary = "Removed."
+      Qt.callLater(function() { root.refreshPlugins() })
+      return
+    }
+    var id = root.removeQueue.shift()
+    root.removingPlugin = true
+    root.removeSummary = "Removing " + id + "…"
+    removeProcess.command = ["bash", "-c", "omarchy plugin remove \"$0\" --yes 2>&1 | { head -c 8192; cat >/dev/null; }; exit ${PIPESTATUS[0]}", id]
+    removeProcess.running = true
+  }
+
+  function onRemoveFinished(exitCode) {
+    var err = String(removeStdout.text || "").trim()
+    if (exitCode !== 0) {
+      root.removingPlugin = false
+      root.removeQueue = []
+      root.removeSummary = "Remove failed" + (err ? ": " + err : "")
+      return
+    }
+    Qt.callLater(function() { root.removeNext() })
+  }
+
+  // Reads `git remote get-url origin` and `git rev-parse HEAD` for every
+  // git-managed plugin dir and fills pluginRepos / pluginCommits (keyed by
+  // folder name) so each row can offer a repo link and compare its installed
+  // code against the marketplace listing snapshot.
+  function scanPluginRepos() {
+    var dir = (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/omarchy/plugins"
+    if (root.reposScanning) return
+    root.reposScanning = true
+    var script = ""
+      + "dirs=\"$0\"\n"
+      + "{ for d in \"$dirs\"/*/; do\n"
+      + "  [ -d \"$d/.git\" ] || continue\n"
+      + "  id=$(basename \"$d\")\n"
+      + "  url=$(git -C \"$d\" remote get-url origin 2>/dev/null)\n"
+      + "  sha=$(git -C \"$d\" rev-parse HEAD 2>/dev/null)\n"
+      + "  [ -n \"$url$sha\" ] && echo \"$id|$url|$sha\"\n"
+      + "done; } | { head -c 16384; cat >/dev/null; }"
+    repoScanProcess.command = ["bash", "-c", script, dir]
+    repoScanProcess.running = true
+  }
+
+  function repoUrlFor(sourceKey) {
+    return root.pluginRepos[sourceKey] || ""
+  }
+
+  function openPluginRepo(sourceKey) {
+    var url = root.repoUrlFor(sourceKey)
+    // Only hand http(s) URLs to the browser: a malicious plugin's git remote
+    // could otherwise use file://, command:, or custom schemes via xdg-open.
+    if (url && /^https?:\/\//.test(url)) Qt.openUrlExternally(url)
+  }
+
+  // Open an http(s) URL in the browser. QDesktopServices can silently no-op
+  // under some session setups, so fall back to a detached xdg-open when it
+  // reports failure.
+  property Process xdgOpenProcess: Process {}
+  function openExternal(url) {
+    var u = String(url || "")
+    if (!/^https?:\/\//.test(u)) return
+    console.log("omaplug open:", u)
+    if (!Qt.openUrlExternally(u)) {
+      console.log("omaplug openUrlExternally failed, falling back to xdg-open")
+      xdgOpenProcess.command = ["xdg-open", u]
+      xdgOpenProcess.running = true
+    }
+  }
+
+  function openRowMenu(id, x, y) {
+    root.rowMenuId = id
+    root.rowMenuPos = { x: x, y: y }
+    root.rowMenuOpen = true
+  }
+
+  function closeRowMenu() {
+    root.rowMenuOpen = false
+    root.rowMenuId = ""
+  }
+
+  function rowMenuPlugin() {
+    for (var i = 0; i < root.pluginRows.length; i++)
+      if (root.pluginRows[i].id === root.rowMenuId) return root.pluginRows[i]
+    return null
+  }
+
+  // Fetches every git-managed plugin's remote and reports which are behind.
+  // The script echoes a CHECK line before each plugin so the updates page can
+  // show per-plugin progress while the fetch runs, then the result line.
+  //
+  // helperPath defaults to plugin-state.sh (the manual "Check for updates"
+  // button always uses this, unparameterized). The background Timer below
+  // instead passes autoCheckCoordinatorPath: the omaplug bar widget exists
+  // once per monitor, each running its own independent Panel.qml/Timer, so
+  // an unattended tick would otherwise fire N simultaneous, fully redundant
+  // fetch passes over every installed plugin. The coordinator wraps
+  // plugin-state.sh with a lock + shared cache so only one instance's timer
+  // tick actually runs it; the others reuse that output.
+  function checkUpdates(helperPath) {
+    var dir = (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/omarchy/plugins"
+    var helper = helperPath || root.updateHelperPath
+    if (!dir || helper === "" || root.checkingUpdates || root.updateDetachedRunning) return
+    root.checkingUpdates = true
+    root.updateSummary = ""
+    // Deliberately not reset: this now also runs unattended in the
+    // background (autoUpdateCheckTimer below), and blanking every row/the
+    // bar badge back to "Pending" for the duration of a check the user never
+    // asked for would read as a regression flashing by on its own. Each
+    // plugin's entry is overwritten in place as its fresh CHECK/result line
+    // streams in (applyUpdateCheckLine), so a still-installed plugin only
+    // ever shows its last known state or a newer one, never a gap.
+    root.updateCheckLineBuf = ""
+    root.updateCheckProcessed = 0
+    root.updateCheckSeen = {}
+    root.checkWatchdog.restart()
+    updateCheckProcess.command = helper === root.autoCheckCoordinatorPath
+      ? ["bash", helper, dir]
+      : ["python3", root.runtimeStatePath, "check-manual", dir]
+    updateCheckProcess.running = true
+  }
+
+  // Runs checkUpdates() on its own, whether or not the panel is open (the
+  // BarWidget's Loader keeps this item alive in the background). checkUpdates
+  // already no-ops while a check or an update is in flight, so this can't
+  // step on a user-initiated check. Toggling autoCheckEnabled pauses/resumes
+  // the timer immediately; changing autoCheckIntervalHours re-times it on the
+  // next tick without needing a restart.
+  Timer {
+    id: autoUpdateCheckTimer
+    interval: root.autoCheckIntervalHours * 3600000
+    running: root.autoCheckEnabled && root.autoCheckCoordinatorPath !== "" && root.hostWidget !== null
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: root.checkUpdates(root.autoCheckCoordinatorPath)
+  }
+
+  // Per-line parser for plugin-state.sh output: tab-separated
+  // "<state>\t<folderKey>[<\torigin-url>]" records. States beyond CHECK are
+  // final; a non-empty origin-url also feeds pluginRepos so row links work.
+  function applyUpdateCheckLine(line) {
+    var cleanLine = String(line || "").trim()
+    if (cleanLine === "") return
+    var parts = cleanLine.split("\t")
+    if (parts.length < 2) return
+    var state = parts[0]
+    var key = parts[1]
+    if (["CHECK", "CURRENT", "UPDATE", "LOCAL_CHANGES", "LOCAL", "ERROR"].indexOf(state) < 0 || key === "") return
+    root.updateCheckSeen[key] = true
+    var st = {}
+    for (var k in root.updateStates) st[k] = root.updateStates[k]
+    st[key] = state
+    root.updateStates = st
+
+    if (parts.length > 2 && parts[2] !== "") {
+      var repos = {}
+      for (var r in root.pluginRepos) repos[r] = root.pluginRepos[r]
+      repos[key] = parts[2]
+      root.pluginRepos = repos
+    }
+  }
+
+  // Incremental per-line parse of the streaming check output. The collector's
+  // text is cumulative, so diff from the last-processed offset and buffer the
+  // tail until a newline lands. Each plugin is reported as CHECK, then
+  // CURRENT/UPDATE/ERROR; updateStates updates live so the updates page's rows
+  // flip as the fetch for each plugin completes.
+  function applyUpdateCheckData(text) {
+    var all = String(text || "")
+    if (root.checkingUpdates) root.checkWatchdog.restart()
+    var fresh = all.substring(root.updateCheckProcessed)
+    root.updateCheckProcessed = all.length
+    root.updateCheckLineBuf += fresh
+    var idx = root.updateCheckLineBuf.lastIndexOf("\n")
+    if (idx < 0) return
+    var ready = root.updateCheckLineBuf.substring(0, idx + 1)
+    root.updateCheckLineBuf = root.updateCheckLineBuf.substring(idx + 1)
+    var lines = ready.split("\n")
+    for (var i = 0; i < lines.length; i++) root.applyUpdateCheckLine(lines[i])
+  }
+
+  // Finalize after the stream ends: flush any unterminated tail, then compute
+  // the summary from the collected per-plugin states.
+  function finishUpdateCheck(exitCode) {
+    if (root.updateCheckLineBuf !== "") {
+      var tail = root.updateCheckLineBuf.trim()
+      root.updateCheckLineBuf = ""
+      if (tail !== "") root.applyUpdateCheckLine(tail)
+    }
+    root.checkWatchdog.stop()
+    root.checkingUpdates = false
+    var states = {}
+    for (var oldKey in root.updateStates) states[oldKey] = root.updateStates[oldKey]
+    for (var i = 0; i < root.updateCheckRows.length; i++) {
+      var sourceKey = root.updateCheckRows[i].sourceKey
+      if (!root.updateCheckSeen[sourceKey] || !states[sourceKey] || states[sourceKey] === "CHECK") states[sourceKey] = "ERROR"
+    }
+    root.updateStates = states
+    var updates = 0
+    var errors = 0
+    for (var key in root.updateStates) {
+      if (root.updateStates[key] === "UPDATE") updates++
+      else if (root.updateStates[key] === "ERROR") errors++
+    }
+    if (exitCode !== 0)
+      root.updateSummary = "Update check failed" + root.updateErrorSuffix(errors)
+    else if (updates === 0 && errors === 0)
+      root.updateSummary = ""
+    else if (updates === 0)
+      root.updateSummary = "No updates available" + root.updateErrorSuffix(errors)
+    else
+      root.updateSummary = updates + " update" + (updates > 1 ? "s" : "") + " available"
+        + root.updateErrorSuffix(errors)
+  }
+
+  function updatePlugin(sourceKey) {
+    root.startDetachedUpdates([sourceKey])
+  }
+
+  function updateAll() {
+    if (root.checkingUpdates || root.updateDetachedRunning) return
+    var ids = []
+    for (var i = 0; i < root.updateCheckRows.length; i++) {
+      var key = root.updateCheckRows[i].sourceKey
+      if (root.updateStates[key] === "UPDATE") ids.push(key)
+    }
+    root.startDetachedUpdates(ids)
+  }
+
+  // Launch only the repositories proven updateable by the preceding check.
+  // The helper is detached because the first successful merge makes Omarchy
+  // unload this panel; progress lives at a stable runtime path so the newly
+  // loaded instance can reconnect to the same job.
+  function startDetachedUpdates(ids) {
+    if (!ids || ids.length === 0 || root.checkingUpdates || root.updateDetachedRunning) return
+    if (root.updateRunnerPath === "" || root.updateStatusPath === "") {
+      root.updateSummary = "Update helper not found"
+      return
+    }
+
+    root.updateDetachedRunning = true
+    root.updateAwaitingStart = true
+    root.updateExpectedJobId = Date.now().toString(36) + "-" + Math.floor(Math.random() * 0x1000000).toString(36)
+    root.updateProbePid = ""
+    root.updateDeadProbeCount = 0
+    root.updatingAll = ids.length > 1
+    root.updatingId = ids.length === 1 ? ids[0] : ""
+    root.updateSummary = ids.length === 1
+      ? "Updating " + ids[0] + "…"
+      : "Updating 0 of " + ids.length + "…"
+
+    var launch = [root.updateRunnerPath, root.updateStatusPath, root.updateExpectedJobId]
+    for (var i = 0; i < ids.length; i++) launch.push(ids[i])
+    try {
+      Quickshell.execDetached(launch)
+    } catch (e) {
+      root.markUpdateInterrupted("Update could not start")
+      return
+    }
+    updateStartTimer.restart()
+    updateStatusPoll.restart()
+  }
+
+  function applyUpdateJobStatus() {
+    var text = ""
+    try { text = updateStatusStdout.text } catch (e) { return }
+    if (String(text || "").trim() === "") return
+
+    var lines = String(text).split("\n")
+    var jobId = ""
+    var pid = ""
+    var total = 0
+    var current = ""
+    var completed = 0
+    var failures = 0
+    var finished = 0
+    var done = false
+    var outcomes = {}
+
+    for (var i = 0; i < lines.length; i++) {
+      var parts = lines[i].split("\t")
+      var event = parts[0]
+      if (event === "job") jobId = parts[1] || ""
+      else if (event === "pid") pid = parts[1] || ""
+      else if (event === "total") total = parseInt(parts[1] || "0")
+      else if (event === "start") current = parts[1] || ""
+      else if (event === "ok") {
+        outcomes[parts[1]] = "CURRENT"
+        completed++
+        if (current === parts[1]) current = ""
+      } else if (event === "failed") {
+        outcomes[parts[1]] = "ERROR"
+        completed++
+        failures++
+        if (current === parts[1]) current = ""
+      } else if (event === "finished") {
+        finished = parseInt(parts[1] || "0")
+      } else if (event === "done") {
+        done = true
+        completed = parseInt(parts[1] || String(completed)) + parseInt(parts[2] || String(failures))
+        failures = parseInt(parts[2] || String(failures))
+      }
+    }
+
+    // A previous completed job may still be present while the newly detached
+    // helper starts. Ignore it until this panel sees its own job id. A panel
+    // recreated by Omarchy's hot reload has no expectation and adopts the
+    // current job from disk instead.
+    var expectingJob = root.updateExpectedJobId !== ""
+    if (jobId === "" || (expectingJob && jobId !== root.updateExpectedJobId)) return
+    if (!expectingJob && done && finished > 0
+        && Date.now() / 1000 - finished > root.completedUpdateJobMaxAgeSeconds) return
+    root.updateExpectedJobId = jobId
+    root.updateAwaitingStart = false
+    updateStartTimer.stop()
+    if (pid !== root.updateProbePid) {
+      root.updateProbePid = pid
+      root.updateDeadProbeCount = 0
+    }
+
+    var states = {}
+    for (var key in root.updateStates) states[key] = root.updateStates[key]
+    for (var outcome in outcomes) states[outcome] = outcomes[outcome]
+    root.updateStates = states
+    root.updatingAll = total > 1
+    root.updatingId = current
+
+    if (done) {
+      root.updateDetachedRunning = false
+      root.updateAwaitingStart = false
+      root.updatingAll = false
+      root.updatingId = ""
+      root.updateProbePid = ""
+      root.updateDeadProbeCount = 0
+      updateStartTimer.stop()
+      updateStatusPoll.stop()
+      var successes = Math.max(0, completed - failures)
+      if (failures === 0)
+        root.updateSummary = successes === 1 ? "1 plugin updated" : successes + " plugins updated"
+      else
+        root.updateSummary = successes + " updated, " + failures + " failed"
+      root.refreshPlugins()
+      return
+    }
+
+    root.updateDetachedRunning = true
+    root.updateSummary = total > 1
+      ? "Updating " + completed + " of " + total + (current ? ": " + current : "") + "…"
+      : (current ? "Updating " + current + "…" : "Preparing update…")
+    updateStatusPoll.restart()
+  }
+
+  function recoverExistingUpdateOrFailStart() {
+    if (!root.updateAwaitingStart) return
+    root.updateAwaitingStart = false
+    root.updateExpectedJobId = ""
+    root.updateDetachedRunning = false
+    root.applyUpdateJobStatus()
+    if (!root.updateDetachedRunning)
+      root.markUpdateInterrupted("Update could not start. Another update may already be running.")
+  }
+
+  function markUpdateInterrupted(message) {
+    root.updateDetachedRunning = false
+    root.updateAwaitingStart = false
+    root.updatingAll = false
+    root.updatingId = ""
+    root.updateExpectedJobId = ""
+    root.updateProbePid = ""
+    root.updateDeadProbeCount = 0
+    updateStartTimer.stop()
+    updateStatusPoll.stop()
+    root.updateSummary = message || "Update interrupted. Check again."
+  }
+
+  // Fetches the public marketplace catalog (capped at 2 MB like every other
+  // retained output) and builds the id -> {verified} map.
+  function fetchMarketplace() {
+    if (root.marketplaceFetching || root.marketplaceHelperPath === "") return
+    root.marketplaceFetching = true
+    root.marketplaceFetchFailed = false
+    marketplaceProcess.command = [root.marketplaceHelperPath]
+    marketplaceProcess.running = true
+  }
+
+  function applyMarketplaceCatalog(text) {
+    root.marketplaceFetching = false
+    root.marketplaceFetchedAt = String(new Date().toISOString())
+    var map = {}
+    try {
+      var catalog = JSON.parse(String(text || "{}"))
+      if (!catalog || typeof catalog !== "object" || !Array.isArray(catalog.plugins))
+        throw new Error("catalog.plugins is not an array")
+      var plugins = catalog.plugins
+      for (var i = 0; i < plugins.length; i++) {
+        var entry = plugins[i]
+        if (!entry || typeof entry.id !== "string" || !entry.id) continue
+        map[entry.id] = {
+          name: typeof entry.name === "string" ? entry.name : "",
+          version: entry.version !== undefined ? String(entry.version) : "",
+          author: typeof entry.author === "string" ? entry.author : "",
+          description: typeof entry.description === "string" ? entry.description : "",
+          verified: entry.verificationStatus === "verified",
+          snapshotCommit: typeof entry.verificationCommit === "string" ? entry.verificationCommit : "",
+          snapshotStatus: String(entry.verificationCoverage || entry.verificationSnapshotStatus || entry.verificationStatus || ""),
+          upstreamCommit: typeof entry.upstreamObservedCommit === "string" ? entry.upstreamObservedCommit : "",
+          releaseUrl: entry.repositoryRelease && typeof entry.repositoryRelease.url === "string" ? entry.repositoryRelease.url : ""
+        }
+      }
+    } catch (e) {
+      console.log("marketplace catalog parse failed:", e)
+      return
+    }
+    root.marketplaceMap = map
+    root.mergeMarketplaceMetadata(map)
+    console.log("marketplace entries:", Object.keys(map).length)
+  }
+
+  function mergeMarketplaceMetadata(map) {
+    var rows = []
+    for (var i = 0; i < root.pluginRows.length; i++) {
+      var row = root.pluginRows[i]
+      var item = map[String(row.id)] || {}
+      rows.push({
+        id: row.id,
+        name: row.name || item.name || row.id,
+        version: row.version !== "unknown" ? row.version : (item.version || "unknown"),
+        author: row.author || item.author || "",
+        description: row.description || item.description || "",
+        kinds: row.kinds,
+        canDisable: row.canDisable,
+        firstParty: row.firstParty,
+        sourceDir: row.sourceDir,
+        sourceKey: row.sourceKey,
+        updatable: row.updatable,
+        enabled: row.enabled
+      })
+    }
+    root.pluginRows = rows
+  }
+
+  property Process marketplaceProcess: Process {
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        root.marketplaceFetching = false
+        root.marketplaceFetchFailed = true
+        console.log("marketplace catalog fetch failed, exit code:", exitCode)
+        return
+      }
+      root.applyMarketplaceCatalog(marketplaceStdout.text)
+    }
+    stdout: StdioCollector {
+      id: marketplaceStdout
+      waitForEnd: true
+    }
+  }
+
+  property Process repoScanProcess: Process {
+    onExited: function(exitCode) {
+      root.reposScanning = false
+      root.applyRepoScan(repoScanStdout.text)
+    }
+    stdout: StdioCollector {
+      id: repoScanStdout
+      waitForEnd: true
+    }
+  }
+
+  function applyRepoScan(text) {
+    var out = String(text || "").trim()
+    if (out === "") return
+    var repos = {}
+    var commits = {}
+    var lines = out.split("\n")
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim()
+      if (line === "") continue
+      var parts = line.split("|")
+      if (parts.length < 2) continue
+      var key = parts[0].trim()
+      var url = (parts[1] || "").trim()
+      var sha = (parts[2] || "").trim()
+      if (!key) continue
+      if (url) repos[key] = url
+      if (/^[0-9a-f]{40}$/.test(sha)) commits[key] = sha
+    }
+    root.pluginRepos = repos
+    root.pluginCommits = commits
+  }
+
+  property Process updateCheckProcess: Process {
+    onExited: function(exitCode) {
+      console.log("updateCheckProcess onExited exitCode=", exitCode)
+      root.finishUpdateCheck(exitCode)
+    }
+    stdout: StdioCollector {
+      id: updateCheckStdout
+      waitForEnd: false
+      onTextChanged: root.applyUpdateCheckData(updateCheckStdout.text)
+    }
+  }
+
+  // Liveness probe for the detached update runner: kill -0 the recorded pid;
+  // two consecutive failures mean the helper died without a done marker.
+  property Process updateProbeProcess: Process {
+    onExited: function(exitCode) {
+      if (!root.updateDetachedRunning || root.updateAwaitingStart) return
+      if (exitCode === 0) {
+        root.updateDeadProbeCount = 0
+        return
+      }
+      root.updateDeadProbeCount++
+      updateStatusFile.reload()
+      if (root.updateDeadProbeCount >= 2)
+        root.markUpdateInterrupted()
+    }
+  }
+
+  Process {
+    id: updateStatusFile
+    command: ["python3", root.runtimeStatePath, "read", "update.status"]
+    function reload() { if (!running) running = true }
+    stdout: StdioCollector { id: updateStatusStdout; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode === 0) root.applyUpdateJobStatus()
+    }
+  }
+
+  Timer {
+    id: updateStartTimer
+    interval: 3000
+    repeat: false
+    onTriggered: root.recoverExistingUpdateOrFailStart()
+  }
+
+  Timer {
+    id: updateStatusPoll
+    interval: 500
+    repeat: true
+    running: root.updateDetachedRunning
+    onTriggered: updateStatusFile.reload()
+  }
+
+  Timer {
+    interval: 2000
+    repeat: true
+    running: root.updateDetachedRunning && !root.updateAwaitingStart
+    onTriggered: {
+      if (!root.updateProbeProcess.running && /^[0-9]+$/.test(root.updateProbePid)) {
+        root.updateProbeProcess.command = ["bash", "-c", 'kill -0 "$0" 2>/dev/null', root.updateProbePid]
+        root.updateProbeProcess.running = true
+      }
+    }
+  }
+
+  // Launches the detached install helper. It only needs to start the
+  // setsid/nohup command and exit, so no output collection is required.
+  property Process installLaunchProcess: Process {
+    onExited: function(exitCode) {
+    }
+  }
+
+  property Process removeProcess: Process {
+    onExited: function(exitCode) {
+      root.onRemoveFinished(exitCode)
+    }
+    stdout: StdioCollector { id: removeStdout; waitForEnd: true }
+  }
+
+  // Launches the detached shell restart. The shell dies mid-command, so the
+  // work runs setsid/nohup from a short-lived Process that exits immediately.
+  property Process restartShellProcess: Process {
+    onExited: function(exitCode) {
+    }
+  }
+
+  // Only accepts GitHub repository URLs (https or git@). Mirrors the
+  // marketplace's github-repository validation and how omarchy plugin/theme
+  // installs are expected to use github links (omarchy plugin add
+  // https://github.com/owner/repo.git). Rejects non-GitHub hosts and any
+  // whitespace (space, tab, newline) to avoid crafted markup.
+  function isValidGitHubRepoUrl(url) {
+    if (!url || typeof url !== "string") return false
+    if (/\s/.test(url)) return false
+    var u = url.replace(/[.,;!?]+$/, "")
+    var httpsPat = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?\/?$/
+    if (httpsPat.test(u)) {
+      var m = u.match(/^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(?:\.git)?\/?$/)
+      if (m) {
+        var owner = m[1], repo = m[2].replace(/\.git$/, "")
+        if (owner.indexOf("..") !== -1 || repo.indexOf("..") !== -1) return false
+        if (!/^[A-Za-z0-9]/.test(owner) || !/^[A-Za-z0-9]/.test(repo)) return false
+      }
+      return true
+    }
+    var sshPat = /^git@github\.com:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?\/?$/
+    if (sshPat.test(u)) {
+      var n = u.match(/^git@github\.com:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(?:\.git)?\/?$/)
+      if (n) {
+        var o = n[1], r = n[2].replace(/\.git$/, "")
+        if (o.indexOf("..") !== -1 || r.indexOf("..") !== -1) return false
+        if (!/^[A-Za-z0-9]/.test(o) || !/^[A-Za-z0-9]/.test(r)) return false
+      }
+      return true
+    }
+    var sshUrlPat = /^ssh:\/\/git@github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(?:\.git)?\/?$/
+    if (sshUrlPat.test(u)) {
+      var g = u.match(/^ssh:\/\/git@github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(?:\.git)?\/?$/)
+      if (g) {
+        var go = g[1], gr = g[2].replace(/\.git$/, "")
+        if (go.indexOf("..") !== -1 || gr.indexOf("..") !== -1) return false
+        if (!/^[A-Za-z0-9]/.test(go) || !/^[A-Za-z0-9]/.test(gr)) return false
+      }
+      return true
+    }
+    return false
+  }
+
+  // Accepts either a bare GitHub URL or a full `omarchy plugin add <url>`
+  // command. Returns the validated GitHub URL, or "" if none found or not GitHub.
+  function extractInstallUrl(text) {
+    var t = String(text || "").trim()
+    if (t === "") return ""
+    function isValid(tok) {
+      tok = tok.replace(/[.,;!?]+$/, "")
+      return isValidGitHubRepoUrl(tok)
+    }
+    if (!/\s/.test(t)) {
+      return isValid(t) ? t.replace(/[.,;!?]+$/, "") : ""
+    }
+    var tokens = t.split(/\s+/)
+    for (var i = 0; i < tokens.length; i++) {
+      var tok = tokens[i].replace(/[.,;!?]+$/, "")
+      if (isValid(tok)) return tok
+    }
+    return ""
+  }
+
+  // Called from the install dialog: extract the URL and ask for
+  // confirmation. Only GitHub URLs are accepted (https://github.com/owner/repo
+  // or git@github.com:owner/repo.git), matching omarchy plugin/theme
+  // expectations and preventing arbitrary host installs. The plugin is
+  // installed but NOT enabled by default.
+  function requestInstall(rawText) {
+    var raw = String(rawText || "").trim()
+    if (raw === "") return
+    var url = root.extractInstallUrl(raw)
+    if (url === "") {
+      root.installResult = "Please enter a valid GitHub repository URL (https://github.com/owner/repo or git@github.com:owner/repo.git)"
+      root.installFailed = true
+      return
+    }
+    root.installFailed = false
+    root.installResult = ""
+    root.installPendingUrl = url
+    root.installConfirmOpen = true
+  }
+
+  function installPlugin() {
+    var url = root.installPendingUrl
+    if (url === "") return
+    root.installConfirmOpen = false
+    root.installRunning = true
+    root.installFailed = false
+    root.installResult = "Installing " + url + "…"
+    root.startDetachedInstall(url)
+  }
+
+  // Structured status is separate from installer output and survives reloads.
+  property string installExpectedJobId: ""
+
+  function startDetachedInstall(url) {
+    root.installExpectedJobId = Date.now().toString(36) + "-" + Math.floor(Math.random() * 0x1000000).toString(36)
+    root.installDetachedRunning = true
+    root.installResult = "Installing " + url + "…"
+    root.installWatchdog.restart()
+    try {
+      Quickshell.execDetached(["python3", root.runtimeStatePath, "install", url, root.installExpectedJobId])
+    } catch (e) {
+      root.installDetachedRunning = false
+      root.installRunning = false
+      root.installFailed = true
+      root.installResult = "Install could not start"
+      root.installWatchdog.stop()
+    }
+    installStatusFile.reload()
+  }
+
+  function cancelInstallConfirm() {
+    root.installPendingUrl = ""
+    root.installConfirmOpen = false
+  }
+
+  Process {
+    id: installStatusFile
+    command: ["python3", root.runtimeStatePath, "read", "install.status"]
+    function reload() { if (!running) running = true }
+    stdout: StdioCollector { id: installStatusStdout; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode === 0) root.onInstallStatusUpdate()
+    }
+  }
+
+  Timer {
+    interval: 1000
+    repeat: true
+    running: root.installDetachedRunning
+    onTriggered: installStatusFile.reload()
+  }
+
+  function onInstallStatusUpdate() {
+    var data
+    try { data = JSON.parse(String(installStatusStdout.text)) } catch (e) { return }
+    if (!data || typeof data.job !== "string"
+        || (root.installExpectedJobId !== "" && data.job !== root.installExpectedJobId)) return
+    if (root.installExpectedJobId === "" && data.running !== true
+        && (!data.finished || Date.now() / 1000 - data.finished > 300)) return
+    root.installExpectedJobId = data.job
+    root.installDetachedRunning = data.running === true
+    root.installRunning = root.installDetachedRunning
+    if (root.installRunning) {
+      root.installResult = "Installing…"
+      if (!root.installWatchdog.running) root.installWatchdog.restart()
+      return
+    }
+    root.installWatchdog.stop()
+    root.installFailed = data.failed !== false
+    root.installResult = root.installFailed
+      ? "Install failed"
+      : "Installed. Review the code, then enable it in the list."
+    root.refreshPlugins()
+  }
+
+  function refreshPlugins() {
+    if (root.pluginListProcess.running) return
+    root.pluginListProcess.command = ["omarchy", "plugin", "list", "--json"]
+    root.pluginListProcess.running = true
+    if (!root.pluginConfigProcess.running) {
+      root.pluginConfigProcess.command = ["omarchy-shell", "shell", "listShellConfig"]
+      root.pluginConfigProcess.running = true
+    }
+  }
+
+  function applyPluginConfig(text) {
+    var config = {}
+    try { config = JSON.parse(String(text || "{}")) } catch (e) { return }
+    var nested = {}
+    var layout = config.bar && config.bar.layout ? config.bar.layout : {}
+    for (var section in layout) {
+      var entries = Array.isArray(layout[section]) ? layout[section] : []
+      for (var i = 0; i < entries.length; i++) {
+        var widgets = entries[i] && Array.isArray(entries[i].widgets) ? entries[i].widgets : []
+        for (var j = 0; j < widgets.length; j++) nested[String(widgets[j])] = true
+      }
+    }
+    root.nestedWidgetIds = nested
+  }
+
+  function applyPluginList(text) {
+    var catalog
+    try { catalog = JSON.parse(String(text || "")) }
+    catch (e) {
+      console.warn("Could not parse omarchy plugin list:", e)
+      pluginRows = []
+      return
+    }
+    if (!Array.isArray(catalog)) {
+      pluginRows = []
+      return
+    }
+    var rows = []
+    for (var i = 0; i < catalog.length; i++) {
+      var m = catalog[i]
+      if (!m || typeof m !== "object" || !m.id) continue
+      var id = String(m.id)
+      var kinds = Array.isArray(m.kinds) ? m.kinds : []
+      var isBarOption = kinds.indexOf("bar") !== -1
+      rows.push({
+        id: id,
+        name: m.name || id,
+        version: "unknown",
+        author: "",
+        description: "",
+        kinds: kinds.join(", "),
+        canDisable: !isBarOption,
+        firstParty: m.firstParty === true,
+        sourceDir: "",
+        sourceKey: id,
+        updatable: m.firstParty !== true,
+        enabled: m.enabled === true
+      })
+    }
+    rows.sort(function(a, b) {
+      var ka = a.firstParty ? 0 : 1
+      var kb = b.firstParty ? 0 : 1
+      if (ka !== kb) return ka - kb
+      return String(a.name).localeCompare(String(b.name))
+    })
+    pluginRows = rows
+    root.mergeMarketplaceMetadata(root.marketplaceMap)
+    root.pluginManifestProcess.command = ["bash", "-c",
+      "for base in \"$0/shell/plugins\" \"$HOME/.config/omarchy/plugins\"; do "
+      + "[ -d \"$base\" ] || continue; "
+      + "firstParty=false; [[ \"$base\" == \"$0/shell/plugins\" ]] && firstParty=true; "
+      + "find -L \"$base\" -maxdepth 4 -type f '(' -name manifest.json -o -name '*.manifest.json' ')' -print0 "
+      + "| while IFS= read -r -d '' file; do jq -c --argjson firstParty \"$firstParty\" "
+      + "'{id,name,version,author,description,kinds,firstParty:$firstParty}' \"$file\"; done; "
+      + "done",
+      Quickshell.env("OMARCHY_PATH")]
+    root.pluginManifestProcess.running = true
+    root.scanPluginRepos()
+  }
+
+  function applyPluginMetadata(text) {
+    var metadata = {}
+    var lines = String(text || "").trim().split("\n")
+    for (var i = 0; i < lines.length; i++) {
+      try {
+        var item = JSON.parse(lines[i])
+        if (item && item.id) metadata[String(item.id)] = item
+      } catch (e) { }
+    }
+    var rows = []
+    if (root.pluginRows.length === 0) {
+      for (var id in metadata) {
+        var fallback = metadata[id]
+        var fallbackKinds = Array.isArray(fallback.kinds) ? fallback.kinds : []
+        rows.push({
+          id: id,
+          name: fallback.name || id,
+          version: fallback.version || "unknown",
+          author: fallback.author || "",
+          description: fallback.description || "",
+          kinds: fallbackKinds.join(", "),
+          canDisable: fallbackKinds.indexOf("bar") === -1,
+          firstParty: fallback.firstParty === true,
+          sourceDir: "",
+          sourceKey: id,
+          updatable: fallback.firstParty !== true,
+          enabled: false
+        })
+      }
+    }
+    for (var j = 0; j < root.pluginRows.length; j++) {
+      var row = root.pluginRows[j]
+      var item = metadata[row.id]
+      if (!item) {
+        rows.push(row)
+        continue
+      }
+      rows.push({
+        id: row.id,
+        name: item.name || row.name,
+        version: item.version || row.version,
+        author: item.author || row.author,
+        description: item.description || row.description,
+        kinds: Array.isArray(item.kinds) ? item.kinds.join(", ") : row.kinds,
+        canDisable: row.canDisable,
+        firstParty: row.firstParty,
+        sourceDir: row.sourceDir,
+        sourceKey: row.sourceKey,
+        updatable: row.updatable,
+        enabled: row.enabled
+      })    }
+    root.pluginRows = rows
+  }
+
+  function setPluginEnabled(id, value) {
+    if (root.pluginToggleProcess.running) return
+    // Bar options cannot be disabled directly (they are bar placements);
+    // guard here so a stale UI can't fight the registry.
+    for (var i = 0; i < root.pluginRows.length; i++) {
+      var row = root.pluginRows[i]
+      if (row.id === id && value === false && row.canDisable === false) return
+    }
+    root.keepOpenAcrossRebuild()
+    var nested = root.nestedWidgetIds[String(id)] === true
+    var helper = String(Qt.resolvedUrl("nested-widget-toggle.sh")).replace(/^file:\/\//, "")
+    root.pluginToggleProcess.command = !value && nested
+      ? ["setsid", "-f", helper, id, "disable"]
+      : ["omarchy", "plugin", value ? "enable" : "disable", id]
+    root.pluginToggleProcess.running = true
+  }
+
+  function pluginEnabled(id) {
+    for (var i = 0; i < root.pluginRows.length; i++)
+      if (root.pluginRows[i].id === id)
+        return root.pluginRows[i].enabled === true || root.nestedWidgetIds[String(id)] === true
+    return false
+  }
+
+  // Bar-widget placement via the same CLI the bar group uses. Upstream
+  // drives enable/disable through `omarchy plugin …` subprocesses, so move
+  // follows the same pattern with `omarchy bar move` instead of touching
+  // the shell registry (which user panels no longer reach).
+  property var barLayoutCache: ({ left: [], center: [], right: [] })
+  property Process barLayoutProcess: Process {
+    onExited: function(exitCode) {
+      if (exitCode === 0) root.applyBarLayout(barLayoutStdout.text)
+    }
+    stdout: StdioCollector {
+      id: barLayoutStdout
+      waitForEnd: true
+    }
+  }
+  property Process barMoveProcess: Process {
+    onExited: function(exitCode) {
+      var err = String(barMoveStdout.text || "").trim()
+      if (exitCode !== 0) {
+        root.moveSummary = "Move failed" + (err ? ": " + err : "")
+      } else if (root.movePending !== "") {
+        root.moveSummary = "Moved " + root.movePending + "."
+      }
+      root.movePending = ""
+      root.refreshBarLayout()
+      root.refreshPlugins()
+    }
+    stdout: StdioCollector {
+      id: barMoveStdout
+      waitForEnd: true
+    }
+  }
+  property string movePending: ""
+
+  function refreshBarLayout() {
+    if (root.barLayoutProcess.running) return
+    root.barLayoutProcess.command = ["bash", "-c", "cat \"${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/shell.json\""]
+    root.barLayoutProcess.running = true
+  }
+
+  function applyBarLayout(text) {
+    var config
+    try { config = JSON.parse(String(text || "")) }
+    catch (e) {
+      console.warn("Could not parse shell.json for bar layout:", e)
+      return
+    }
+    var layout = config && config.bar ? config.bar.layout : null
+    var next = { left: [], center: [], right: [] }
+    var sections = ["left", "center", "right"]
+    for (var s = 0; s < sections.length; s++) {
+      var entries = layout && Array.isArray(layout[sections[s]]) ? layout[sections[s]] : []
+      var ids = []
+      for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i]
+        var id = entry && typeof entry === "object" ? entry.id : entry
+        if (id) ids.push(String(id))
+      }
+      next[sections[s]] = ids
+    }
+    root.barLayoutCache = next
+  }
+
+  // Move state for the row-menu "Move to" actions. Only bar-widgets that are
+  // currently on the bar can move; anything else hides the menu entries.
+  function barSectionFor(id) {
+    var sections = ["left", "center", "right"]
+    for (var s = 0; s < sections.length; s++) {
+      var ids = root.barLayoutCache[sections[s]] || []
+      if (ids.indexOf(String(id)) !== -1) return sections[s]
+    }
+    return ""
+  }
+
+  function rowKinds(id) {
+    for (var i = 0; i < root.pluginRows.length; i++)
+      if (root.pluginRows[i].id === String(id)) return String(root.pluginRows[i].kinds || "")
+    return ""
+  }
+
+  function rowName(id) {
+    for (var i = 0; i < root.pluginRows.length; i++)
+      if (root.pluginRows[i].id === String(id)) return String(root.pluginRows[i].name || id)
+    return String(id)
+  }
+
+  function canMoveWidget(id) {
+    if (rowKinds(id).split(", ").indexOf("bar-widget") === -1) return false
+    return root.barSectionFor(id) !== ""
+  }
+
+  function moveWidgetToSection(id, section) {
+    if (["left", "center", "right"].indexOf(section) === -1) return
+    if (root.barMoveProcess.running) return
+    if (root.barSectionFor(id) === section) return
+    root.keepOpenAcrossRebuild()
+    root.movePending = id + " to " + section
+    root.moveSummary = "Moving " + id + "…"
+    root.barMoveProcess.command = ["omarchy", "bar", "move", id, "--section", section]
+    root.barMoveProcess.running = true
+  }
+
+  function moveWidgetToPosition(id, section, index) {
+    if (["left", "center", "right"].indexOf(section) === -1) return
+    if (root.barMoveProcess.running) return
+    root.keepOpenAcrossRebuild()
+    var target = Math.max(0, Math.floor(Number(index) || 0))
+    root.movePending = id + " to " + section
+    root.moveSummary = "Moving " + id + "…"
+    root.barMoveProcess.command = ["omarchy", "bar", "move", id, "--section", section, "--index", String(target)]
+    root.barMoveProcess.running = true
+  }
+
+  // Live bar layout grouped per section for the layout board.
+  function layoutSections() {
+    var out = []
+    var sections = ["left", "center", "right"]
+    for (var s = 0; s < sections.length; s++) {
+      var ids = root.barLayoutCache[sections[s]] || []
+      var items = []
+      for (var i = 0; i < ids.length; i++) {
+        items.push({ id: ids[i], name: root.rowName(ids[i]) })
+      }
+      out.push({ section: sections[s], entries: items })
+    }
+    return out
+  }
+
+  Component.onCompleted: {
+    console.log("Panel.qml loaded, filterMode=", root.filterMode, "rows=", root.pluginRows.length)
+    root.marketplaceHelperPath = String(Qt.resolvedUrl("marketplace-catalog.sh")).replace(/^file:\/\//, "")
+    root.updateHelperPath = String(Qt.resolvedUrl("plugin-state.sh")).replace(/^file:\/\//, "")
+    root.updateRunnerPath = String(Qt.resolvedUrl("update-helper.sh")).replace(/^file:\/\//, "")
+    root.autoCheckCoordinatorPath = String(Qt.resolvedUrl("auto-check-coordinator.sh")).replace(/^file:\/\//, "")
+    refreshPlugins()
+    fetchMarketplace()
+    Qt.callLater(function() { updateStatusFile.reload(); installStatusFile.reload() })
+    // A toggle/move/remove rewrites shell.json, and the bar rebuilds every
+    // widget on every monitor in response — including this panel's own
+    // Loader, which destroys the open instance. Consume a pending reopen
+    // flag (state file) so the fresh instance reopens itself.
+    keepOpenFlagRead.running = true
+  }
+
+  // Mark the panel to reopen after the bar rebuild that this action is
+  // about to trigger. Call before any registry write from panel UI.
+  // The flag lives in a state file: instance properties cannot survive the
+  // rebuild, and the shell object rejects dynamic properties.
+  function keepOpenAcrossRebuild() {
+    keepOpenFlagWrite.command = ["python3", root.runtimeStatePath, "reopen-write",
+      root.layoutPageOpen ? "layout" : "main"]
+    keepOpenFlagWrite.running = true
+  }
+
+  // State-file flag backing keepOpenAcrossRebuild. Two one-shot Processes
+  // (write before the action, consume on fresh load) because plain file IO
+  // from QML JS is intentionally unavailable in Quickshell.
+  Process {
+    id: keepOpenFlagWrite
+  }
+
+  Process {
+    id: keepOpenFlagRead
+    command: ["python3", root.runtimeStatePath, "reopen-read"]
+    stdout: StdioCollector { id: keepOpenState; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode === 0) {
+        keepOpenRetries = 0
+        var restoreLayout = String(keepOpenState.text).trim() === "layout"
+        Qt.callLater(function() {
+          root.open()
+          root.layoutPageOpen = restoreLayout
+        })
+      } else if (keepOpenRetries < 4) {
+        // The flag write races the rebuild: the fresh instance can load
+        // before the touch lands. Retry briefly before giving up.
+        keepOpenRetries++
+        keepOpenRetry.restart()
+      }
+    }
+  }
+
+  property int keepOpenRetries: 0
+
+  Timer {
+    id: keepOpenRetry
+    interval: 150
+    repeat: false
+    onTriggered: {
+      if (!keepOpenFlagRead.running) keepOpenFlagRead.running = true
+    }
+  }
+
+  // ------------------------------------------------------------- open / close
+
+  function open() {
+    refreshPlugins()
+    // Pick up verification changes while retaining cached badges during the fetch.
+    fetchMarketplace()
+    root.refreshBarLayout()
+    root.controller.show()
+    Qt.callLater(function() {
+      if (root.opened) root.primeFocus()
+    })
+  }
+
+  function close() {
+    root.installDialogOpen = false
+    root.updatesPageOpen = false
+    root.layoutPageOpen = false
+    root.removeConfirmOpen = false
+    root.restartConfirmOpen = false
+    root.removeSelectMode = false
+    root.removeSelection = {}
+    root.closeRowMenu()
+    root.controller.hide()
+  }
+
+  function toggle() {
+    if (root.opened) root.close()
+    else root.open()
+  }
+
+
+  function switchPanel(direction) {
+    if (root.bar && typeof root.bar.switchPanelFrom === "function")
+      return root.bar.switchPanelFrom(root.barIdentity, direction)
+    return false
+  }
+
+  // Keyboard focus lands in the search field so the panel can be typed into
+  // the moment it opens. A retry covers the brief window where the layer
+  // negotiates focus before the field can grab it.
+  function primeFocus() {
+    if (searchField) searchField.forceActiveFocus()
+    focusRetry.restart()
+  }
+
+  Timer {
+    id: focusRetry
+    interval: 120
+    repeat: false
+    onTriggered: {
+      if (root.opened && searchField) searchField.forceActiveFocus()
+    }
+  }
+
+  KeyboardPanel {
+    id: panel
+    anchorItem: root.anchorItem
+    owner: root.barIdentity
+    bar: root.bar
+    open: root.opened
+    focusTarget: keyCatcher
+    contentWidth: panel.fittedContentWidth(Style.space(560))
+    contentHeight: panel.fittedContentHeight(Style.space(720))
+
+    // ------------------------------------------------------------------- content
+
+    // Persistent app header: sits above every page (main, updates, remove).
+    Rectangle {
+      id: appHeader
+      anchors.top: parent.top
+      anchors.left: parent.left
+      anchors.right: parent.right
+      height: appHeaderColumn.implicitHeight + Style.space(16)
+      z: 6000
+      color: root.panelBackground
+
+      ColumnLayout {
+        id: appHeaderColumn
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.topMargin: Style.space(8)
+        anchors.leftMargin: Style.space(16)
+        anchors.rightMargin: Style.space(16)
+        anchors.bottomMargin: Style.space(8)
+        spacing: Style.space(2)
+
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(14)
+
+          Text {
+            id: appHeaderIcon
+            Layout.preferredWidth: Style.space(44)
+            Layout.preferredHeight: Style.space(44)
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            text: root.iconFor("omaplug") || "\udb85\udcd9"
+            color: Style.selectedStateColor(root.contentForeground, Color.accent)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.space(34)
+            font.bold: true
+          }
+
+          ColumnLayout {
+            Layout.fillWidth: true
+            Layout.alignment: Qt.AlignVCenter
+            spacing: Style.space(2)
+
+            RowLayout {
+              Layout.fillWidth: true
+              spacing: Style.space(8)
+
+              Label {
+                text: "OMAPLUG"
+                color: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.title * 1.6
+                font.bold: true
+                Layout.fillWidth: true
+              }
+
+              Button {
+                id: marketplaceButton
+                text: "\udb86\ude6f  Marketplace"
+                tooltipText: "Open the Omarchy plugin marketplace"
+                bordered: true
+                foreground: root.contentForeground
+                accent: Color.accent
+                fontFamily: root.contentFontFamily
+                fontSize: Style.font.caption
+                horizontalPadding: Style.space(8)
+                verticalPadding: Style.space(3)
+                Layout.alignment: Qt.AlignVCenter
+                onClicked: Qt.openUrlExternally("https://plugins.omarchy.org")
+              }
+
+              Button {
+                id: restartShellButton
+                text: "\uf021  Restart shell"
+                tooltipText: "Clear the QML cache and restart the shell so every plugin reloads from source"
+                bordered: true
+                foreground: root.contentForeground
+                accent: Color.accent
+                fontFamily: root.contentFontFamily
+                fontSize: Style.font.caption
+                horizontalPadding: Style.space(8)
+                verticalPadding: Style.space(3)
+                Layout.alignment: Qt.AlignVCenter
+                onClicked: root.requestRestartShell()
+              }
+            }
+
+            Label {
+              text: root.headerSummary
+              textFormat: Text.PlainText
+              color: Qt.darker(root.contentForeground, 1.5)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.bodySmall
+              Layout.fillWidth: true
+            }
+          }
+        }
+      }
+    }
+
+    Item {
+      id: panelContent
+      anchors.fill: parent
+      clip: true
+      anchors.topMargin: appHeader.height
+      // The updates page (z: 5000, below) is a full overlay, not a child of
+      // this Item, so painting/input here would otherwise carry on
+      // underneath it - visible through any transparency in panelBackground,
+      // and still clickable through any gap the overlay's own MouseArea
+      // misses. Hiding this Item outright while that page is open removes
+      // both problems at the source instead of only blocking clicks.
+      visible: !root.updatesPageOpen
+
+      MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton
+        onClicked: {} // swallow
+      }
+
+      PanelKeyCatcher {
+        id: keyCatcher
+        anchors.fill: parent
+        blocked: searchField.activeFocus || filterDropdown.popupOpen
+        onCloseRequested: root.close()
+        onTabRequested: function(direction) { root.switchPanel(direction) }
+      }
+
+      ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: Style.space(16)
+        anchors.bottomMargin: 0
+        spacing: Style.space(10)
+
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(8)
+
+          Label {
+            text: "Installed Plugins"
+            color: root.contentForeground
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.body
+            font.bold: true
+            Layout.fillWidth: true
+          }
+
+          Button {
+            iconText: "\uf021"
+            tooltipText: root.checkingUpdates ? "Checking for updates…" : "Check updates"
+            enabled: !root.checkingUpdates && !root.updateDetachedRunning
+            foreground: root.checkingUpdates
+              ? Color.muted
+              : root.contentForeground
+            accent: Color.accent
+            iconSpinning: root.checkingUpdates
+            // Keep the glyph's visual center stable while it spins and make
+            // the disabled state unmistakable against bright themes.
+            iconSize: Style.font.body
+            opacity: root.checkingUpdates ? 0.65 : 1
+            fontFamily: root.contentFontFamily
+            fontSize: Style.font.bodySmall
+            horizontalPadding: Style.space(10)
+            verticalPadding: Style.space(5)
+            onClicked: {
+              root.updatesPageOpen = true
+              if (!root.checkingUpdates) root.checkUpdates()
+            }
+          }
+
+          Button {
+            iconText: ""
+            tooltipText: "Arrange bar layout"
+            foreground: root.contentForeground
+            accent: Color.accent
+            fontFamily: root.contentFontFamily
+            fontSize: Style.font.bodySmall
+            horizontalPadding: Style.space(10)
+            verticalPadding: Style.space(5)
+            onClicked: root.layoutPageOpen = true
+          }
+
+          Button {
+            iconText: "󱓖"
+            tooltipText: "Install plugin"
+            foreground: root.contentForeground
+            accent: Color.accent
+            fontFamily: root.contentFontFamily
+            fontSize: Style.font.bodySmall
+            horizontalPadding: Style.space(10)
+            verticalPadding: Style.space(5)
+            onClicked: root.installDialogOpen = true
+          }
+
+          Button {
+            text: root.removeSelectMode ? "Done" : "Select"
+            tooltipText: "Select plugins to remove"
+            enabled: !root.removingPlugin
+            foreground: root.contentForeground
+            accent: Color.accent
+            fontFamily: root.contentFontFamily
+            fontSize: Style.font.bodySmall
+            horizontalPadding: Style.space(10)
+            verticalPadding: Style.space(5)
+            onClicked: {
+              root.removeSelectMode = !root.removeSelectMode
+              if (!root.removeSelectMode) root.removeSelection = {}
+            }
+          }
+        }
+
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(6)
+
+          Dropdown {
+            id: filterDropdown
+            Layout.preferredWidth: Style.space(140)
+            showLabel: false
+            value: String(root.filterMode)
+            options: [
+              { value: "0", label: "All plugins" },
+              { value: "1", label: "Omarchy" },
+              { value: "2", label: "Third-party" }
+            ]
+            foreground: root.contentForeground
+            background: root.panelBackground
+            popupBorder: Util.alpha(root.contentForeground, 0.2)
+            accent: Color.accent
+            fontFamily: root.contentFontFamily
+            onChanged: function(v) { root.filterMode = parseInt(v) }
+          }
+
+          Dropdown {
+            id: kindDropdown
+            Layout.preferredWidth: Style.space(130)
+            showLabel: false
+            value: root.filterKind
+            options: root.kindOptions
+            foreground: root.contentForeground
+            background: root.panelBackground
+            popupBorder: Util.alpha(root.contentForeground, 0.2)
+            accent: Color.accent
+            fontFamily: root.contentFontFamily
+            onChanged: function(v) { root.filterKind = v }
+          }
+
+          TextField {
+            id: searchField
+            Layout.fillWidth: true
+            placeholderText: "Search plugins…"
+            foreground: root.contentForeground
+            accent: Color.accent
+            font.family: root.contentFontFamily
+            text: root.searchText
+            onTextChanged: root.searchText = text
+            Keys.onEscapePressed: { root.close() }
+          }
+        }
+
+        ListView {
+          id: pluginList
+          Layout.fillWidth: true
+          Layout.fillHeight: true
+          clip: true
+          spacing: 0
+          model: root.visibleRows
+          ScrollBar.vertical: ScrollBar {
+            policy: ScrollBar.AsNeeded
+            implicitWidth: Style.space(6)
+            contentItem: Rectangle {
+              implicitWidth: Style.space(6)
+              implicitHeight: Style.space(6)
+              radius: width / 2
+              color: Util.alpha(root.contentForeground, 0.45)
+            }
+          }
+
+          delegate: Plugin.Row {
+            id: pluginRow
+
+            width: pluginList.width
+            rowCount: pluginList.count
+            marketplaceEntry: pluginRow.modelData.firstParty
+              ? null
+              : (root.marketplaceMap[String(pluginRow.modelData.id)] || null)
+            localCommit: root.pluginCommits[String(pluginRow.modelData.sourceKey)] || ""
+            repoUrl: root.pluginRepos[String(pluginRow.modelData.sourceKey)] || ""
+            repoKnown: root.pluginRepos[String(pluginRow.modelData.sourceKey)] !== undefined
+            updateState: String(root.updateStates[String(pluginRow.modelData.sourceKey)] || "")
+            removeSelectMode: root.removeSelectMode
+            selectedForRemoval: root.removeSelection[pluginRow.modelData.id] === true
+            removingPlugin: root.removingPlugin
+            pluginEnabled: root.pluginEnabled(pluginRow.modelData.id)
+            updateRunning: root.updateDetachedRunning
+            updatingId: root.updatingId
+            icon: root.iconFor(pluginRow.modelData.id)
+            knownKinds: root.knownKinds
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+
+            onRemovalSelectionRequested: function(pluginId) {
+              root.toggleRemoveSelection(pluginId)
+            }
+            onEnabledChangeRequested: function(pluginId, enabled) {
+              root.setPluginEnabled(pluginId, enabled)
+            }
+            onOpenUrlRequested: function(url) { Qt.openUrlExternally(url) }
+            onSourceRequested: function(sourceKey) { root.openPluginRepo(sourceKey) }
+            onUpdateRequested: function(sourceKey) { root.updatePlugin(sourceKey) }
+            onMenuRequested: function(pluginId, sourceItem, x, y) {
+              var point = sourceItem.mapToItem(rowMenuOverlay, x, y)
+              root.openRowMenu(pluginId, point.x, point.y)
+            }
+          }
+        }
+
+        RowLayout {
+          Layout.fillWidth: true
+
+          spacing: Style.space(8)
+          Layout.maximumHeight: implicitHeight
+          visible: root.checkingUpdates || root.updateSummary !== ""
+            || root.removeSummary !== ""
+            || root.moveSummary !== ""
+            || (root.removeSelectMode && root.selectedRemoveCount > 0)
+
+          Label {
+            visible: root.checkingUpdates || root.updateSummary !== ""
+            text: root.checkingUpdates
+              ? "Checking plugin updates…"
+              : root.updateSummary
+            textFormat: Text.PlainText
+            color: root.checkingUpdates
+              ? Qt.darker(root.contentForeground, 1.5)
+              : Style.selectedStateColor(root.contentForeground, Color.accent)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          Label {
+            visible: root.removeSummary !== ""
+            text: root.removeSummary
+            textFormat: Text.PlainText
+            color: Style.selectedStateColor(root.contentForeground, Color.accent)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          Label {
+            visible: root.moveSummary !== ""
+            text: root.moveSummary
+            textFormat: Text.PlainText
+            color: Style.selectedStateColor(root.contentForeground, Color.accent)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          Item {
+            Layout.fillWidth: true
+          }
+
+          Button {
+            visible: root.removeSelectMode && root.selectedRemoveCount > 0
+            text: "Remove selected (" + root.selectedRemoveCount + ")"
+            enabled: !root.removingPlugin
+            foreground: root.contentForeground
+            accent: Color.urgent
+            fontFamily: root.contentFontFamily
+            fontSize: Style.font.bodySmall
+            horizontalPadding: Style.space(12)
+            verticalPadding: Style.space(6)
+            onClicked: root.removeSelected()
+          }
+        }
+      }
+    }
+    Updates.Page {
+      id: updatesPage
+      anchors.fill: parent
+      z: 5000
+
+      open: root.updatesPageOpen
+      topInset: appHeader.height + Style.space(16)
+      foreground: root.contentForeground
+      fontFamily: root.contentFontFamily
+      panelBackground: root.panelBackground
+      rows: root.updateCheckRows
+      updateStates: root.updateStates
+      marketplaceMap: root.marketplaceMap
+      marketplaceFetching: root.marketplaceFetching
+      marketplaceFetchFailed: root.marketplaceFetchFailed
+      checking: root.checkingUpdates
+      updateRunning: root.updateDetachedRunning
+      updatingAll: root.updatingAll
+      pendingCount: root.pendingUpdateCount
+      summary: root.updateSummary
+      iconFor: root.iconFor
+      whatsNewUrlFor: root.whatsNewUrlFor
+      autoCheckEnabled: root.autoCheckEnabled
+      autoCheckIntervalHours: root.autoCheckIntervalHours
+
+      onCloseRequested: root.updatesPageOpen = false
+      onTabRequested: function(direction) { root.switchPanel(direction) }
+      onOpenUrlRequested: function(url) { root.openExternal(url) }
+      onUpdatePluginRequested: function(sourceKey) { root.updatePlugin(sourceKey) }
+      onUpdateAllRequested: root.updateAll()
+      onAutoCheckEnabledRequested: function(value) { root.setAutoCheckEnabled(value) }
+      onAutoCheckIntervalRequested: function(hours) { root.setAutoCheckIntervalHours(hours) }
+    }
+
+    Arrange.Page {
+      id: layoutPage
+      anchors.fill: parent
+      anchors.topMargin: appHeader.height
+      z: 5000
+
+      open: root.layoutPageOpen
+      sections: root.barLayoutSections
+      foreground: root.contentForeground
+      fontFamily: root.contentFontFamily
+      panelBackground: root.panelBackground
+
+      onCloseRequested: root.layoutPageOpen = false
+      onDropRequested: function(pluginId, section, index) {
+        root.moveWidgetToPosition(pluginId, section, index)
+      }
+    }
+
+
+    Plugin.ContextMenu {
+      id: rowMenuOverlay
+      anchors.fill: parent
+      z: 12000
+
+      open: root.rowMenuOpen
+      plugin: root.rowMenuPlugin()
+      pluginEnabled: rowMenuOverlay.plugin ? root.pluginEnabled(rowMenuOverlay.plugin.id) : false
+      repoKnown: rowMenuOverlay.plugin
+        && rowMenuOverlay.plugin.sourceKey !== ""
+        && root.pluginRepos[rowMenuOverlay.plugin.sourceKey] !== undefined
+      updateState: rowMenuOverlay.plugin
+        ? String(root.updateStates[rowMenuOverlay.plugin.sourceKey] || "")
+        : ""
+      updateRunning: root.updateDetachedRunning
+      requestedPosition: root.rowMenuPos
+      foreground: root.contentForeground
+      fontFamily: root.contentFontFamily
+      panelBackground: root.panelBackground
+      canMove: rowMenuOverlay.plugin ? root.canMoveWidget(rowMenuOverlay.plugin.id) : false
+      currentSection: rowMenuOverlay.plugin ? root.barSectionFor(rowMenuOverlay.plugin.id) : ""
+
+      onCloseRequested: root.closeRowMenu()
+      onEnabledChangeRequested: function(pluginId, enabled) {
+        root.setPluginEnabled(pluginId, enabled)
+      }
+      onSourceRequested: function(sourceKey) { root.openPluginRepo(sourceKey) }
+      onUpdateRequested: function(sourceKey) { root.updatePlugin(sourceKey) }
+      onRemovalRequested: function(pluginId) { root.removePlugin(pluginId) }
+      onMoveRequested: function(pluginId, section) { root.moveWidgetToSection(pluginId, section) }
+    }
+
+    Dialogs.Confirm {
+      anchors.fill: parent
+      z: 7000
+
+      open: root.removeConfirmOpen
+      title: root.removePending.length > 1
+        ? "Remove " + root.removePending.length + " plugins?"
+        : "Remove this plugin?"
+      message: root.removePending.length > 1
+        ? "The selected plugins will be deleted from your config. This cannot be undone."
+        : "\"" + (root.removePending.length === 1 ? root.removePending[0] : "") + "\" will be deleted from your config. This cannot be undone."
+      confirmText: "Remove"
+      dismissEnabled: !root.removingPlugin
+      borderColor: Color.urgent
+      confirmForeground: Color.urgent
+      confirmAccent: Color.urgent
+      confirmBordered: true
+      titleWrapMode: Text.WordWrap
+      foreground: root.contentForeground
+      fontFamily: root.contentFontFamily
+      panelBackground: root.panelBackground
+
+      onCancelRequested: root.cancelRemove()
+      onConfirmRequested: root.confirmRemove()
+    }
+
+    Dialogs.Confirm {
+      anchors.fill: parent
+      z: 7000
+
+      open: root.restartConfirmOpen
+      title: "Restart the shell?"
+      message: "The shell (and this panel) will restart so every plugin reloads from source. This fixes plugins that still run stale compiled QML. Unsaved panel state will be lost."
+      confirmText: "Restart"
+      confirmBordered: true
+      foreground: root.contentForeground
+      fontFamily: root.contentFontFamily
+      panelBackground: root.panelBackground
+
+      onCancelRequested: root.cancelRestartShell()
+      onConfirmRequested: root.confirmRestartShell()
+    }
+
+    Dialogs.Install {
+      anchors.fill: parent
+      z: 10000
+
+      open: root.installDialogOpen
+      running: root.installRunning
+      failed: root.installFailed
+      result: root.installResult
+      foreground: root.contentForeground
+      fontFamily: root.contentFontFamily
+      panelBackground: root.panelBackground
+
+      onCloseRequested: root.installDialogOpen = false
+      onInstallRequested: function(rawUrl) { root.requestInstall(rawUrl) }
+    }
+
+    Dialogs.Confirm {
+      anchors.fill: parent
+      z: 11000
+
+      open: root.installConfirmOpen
+      title: "Install plugin?"
+      message: "\"" + root.installPendingUrl + "\" will be added via `omarchy plugin add` but will remain DISABLED until you enable it manually. Review the code after install, then enable from the plugin list."
+      confirmText: "Install"
+      maximumWidth: Style.space(380)
+      titleWrapMode: Text.WordWrap
+      foreground: root.contentForeground
+      fontFamily: root.contentFontFamily
+      panelBackground: root.panelBackground
+
+      onCancelRequested: root.cancelInstallConfirm()
+      onConfirmRequested: root.installPlugin()
+    }
+  }
+}

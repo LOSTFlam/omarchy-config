@@ -1,0 +1,2527 @@
+{
+ "schemaVersion": 1,
+ "profile": "tmux",
+ "judgeMode": "text",
+ "contexts": [
+  "prefix"
+ ],
+ "extras": [],
+ "categories": [
+  "pane",
+  "window",
+  "session",
+  "layout",
+  "copy",
+  "misc"
+ ],
+ "provenance": {
+  "upstream": "tmux",
+  "authority": "tmux -f /dev/null list-keys -N -T prefix (the vendor's own read-only listing, with no configuration sourced)",
+  "source": {
+   "url": "https://github.com/tmux/tmux",
+   "commit": "",
+   "tag": "3.7c",
+   "date": "2026-09-04",
+   "checksum": "af5127697c30678bd7e016a49017fd2524ca7154c3b4c8db45c9a3568660106d"
+  },
+  "generatedAt": "2026-09-04",
+  "generator": "tools/build_packs.py@1"
+ },
+ "dropped": {
+  "device-special-key": 2
+ },
+ "bindings": [
+  {
+   "localId": "prefix/Space",
+   "context": "prefix",
+   "notation": "prefix Space",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "named": "SPACE"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "named": "SPACE"
+     }
+    ]
+   ],
+   "category": "layout",
+   "descKey": "packdesc_tmux_select_next_layout",
+   "desc": "Select next layout",
+   "extras": []
+  },
+  {
+   "localId": "prefix/!",
+   "context": "prefix",
+   "notation": "prefix !",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "!"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "!"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_break_pane_to_a_new_window",
+   "desc": "Break pane to a new window",
+   "extras": []
+  },
+  {
+   "localId": "prefix/\"",
+   "context": "prefix",
+   "notation": "prefix \"",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "\""
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "\""
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_split_window_vertically",
+   "desc": "Split window vertically",
+   "extras": []
+  },
+  {
+   "localId": "prefix/#",
+   "context": "prefix",
+   "notation": "prefix #",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "#"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "#"
+     }
+    ]
+   ],
+   "category": "copy",
+   "descKey": "packdesc_tmux_list_all_paste_buffers",
+   "desc": "List all paste buffers",
+   "extras": []
+  },
+  {
+   "localId": "prefix/$",
+   "context": "prefix",
+   "notation": "prefix $",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "$"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "$"
+     }
+    ]
+   ],
+   "category": "session",
+   "descKey": "packdesc_tmux_rename_current_session",
+   "desc": "Rename current session",
+   "extras": []
+  },
+  {
+   "localId": "prefix/%",
+   "context": "prefix",
+   "notation": "prefix %",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "%"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "%"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_split_window_horizontally",
+   "desc": "Split window horizontally",
+   "extras": []
+  },
+  {
+   "localId": "prefix/&",
+   "context": "prefix",
+   "notation": "prefix &",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "&"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "&"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_kill_current_window",
+   "desc": "Kill current window",
+   "extras": []
+  },
+  {
+   "localId": "prefix/'",
+   "context": "prefix",
+   "notation": "prefix '",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "'"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "'"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_prompt_for_window_index_to_select",
+   "desc": "Prompt for window index to select",
+   "extras": []
+  },
+  {
+   "localId": "prefix/(",
+   "context": "prefix",
+   "notation": "prefix (",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "("
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "("
+     }
+    ]
+   ],
+   "category": "session",
+   "descKey": "packdesc_tmux_switch_to_previous_client",
+   "desc": "Switch to previous client",
+   "extras": []
+  },
+  {
+   "localId": "prefix/)",
+   "context": "prefix",
+   "notation": "prefix )",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": ")"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": ")"
+     }
+    ]
+   ],
+   "category": "session",
+   "descKey": "packdesc_tmux_switch_to_next_client",
+   "desc": "Switch to next client",
+   "extras": []
+  },
+  {
+   "localId": "prefix/*",
+   "context": "prefix",
+   "notation": "prefix *",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "*"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "*"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_new_floating_pane",
+   "desc": "New floating pane",
+   "extras": []
+  },
+  {
+   "localId": "prefix/,",
+   "context": "prefix",
+   "notation": "prefix ,",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": ","
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": ","
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_rename_current_window",
+   "desc": "Rename current window",
+   "extras": []
+  },
+  {
+   "localId": "prefix/-",
+   "context": "prefix",
+   "notation": "prefix -",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "-"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "-"
+     }
+    ]
+   ],
+   "category": "copy",
+   "descKey": "packdesc_tmux_delete_the_most_recent_paste_buffer",
+   "desc": "Delete the most recent paste buffer",
+   "extras": []
+  },
+  {
+   "localId": "prefix/.",
+   "context": "prefix",
+   "notation": "prefix .",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "."
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "."
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_move_the_current_window",
+   "desc": "Move the current window",
+   "extras": []
+  },
+  {
+   "localId": "prefix//",
+   "context": "prefix",
+   "notation": "prefix /",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "/"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "/"
+     }
+    ]
+   ],
+   "category": "misc",
+   "descKey": "packdesc_tmux_describe_key_binding",
+   "desc": "Describe key binding",
+   "extras": []
+  },
+  {
+   "localId": "prefix/0",
+   "context": "prefix",
+   "notation": "prefix 0",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "0"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "0"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_select_window_0",
+   "desc": "Select window 0",
+   "extras": []
+  },
+  {
+   "localId": "prefix/1",
+   "context": "prefix",
+   "notation": "prefix 1",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "1"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "1"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_select_window_1",
+   "desc": "Select window 1",
+   "extras": []
+  },
+  {
+   "localId": "prefix/2",
+   "context": "prefix",
+   "notation": "prefix 2",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "2"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "2"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_select_window_2",
+   "desc": "Select window 2",
+   "extras": []
+  },
+  {
+   "localId": "prefix/3",
+   "context": "prefix",
+   "notation": "prefix 3",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "3"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "3"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_select_window_3",
+   "desc": "Select window 3",
+   "extras": []
+  },
+  {
+   "localId": "prefix/4",
+   "context": "prefix",
+   "notation": "prefix 4",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "4"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "4"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_select_window_4",
+   "desc": "Select window 4",
+   "extras": []
+  },
+  {
+   "localId": "prefix/5",
+   "context": "prefix",
+   "notation": "prefix 5",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "5"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "5"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_select_window_5",
+   "desc": "Select window 5",
+   "extras": []
+  },
+  {
+   "localId": "prefix/6",
+   "context": "prefix",
+   "notation": "prefix 6",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "6"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "6"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_select_window_6",
+   "desc": "Select window 6",
+   "extras": []
+  },
+  {
+   "localId": "prefix/7",
+   "context": "prefix",
+   "notation": "prefix 7",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "7"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "7"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_select_window_7",
+   "desc": "Select window 7",
+   "extras": []
+  },
+  {
+   "localId": "prefix/8",
+   "context": "prefix",
+   "notation": "prefix 8",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "8"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "8"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_select_window_8",
+   "desc": "Select window 8",
+   "extras": []
+  },
+  {
+   "localId": "prefix/9",
+   "context": "prefix",
+   "notation": "prefix 9",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "9"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "9"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_select_window_9",
+   "desc": "Select window 9",
+   "extras": []
+  },
+  {
+   "localId": "prefix/:",
+   "context": "prefix",
+   "notation": "prefix :",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": ":"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": ":"
+     }
+    ]
+   ],
+   "category": "misc",
+   "descKey": "packdesc_tmux_prompt_for_a_command",
+   "desc": "Prompt for a command",
+   "extras": []
+  },
+  {
+   "localId": "prefix/;",
+   "context": "prefix",
+   "notation": "prefix ;",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": ";"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": ";"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_move_to_the_previously_active_pane",
+   "desc": "Move to the previously active pane",
+   "extras": []
+  },
+  {
+   "localId": "prefix/<",
+   "context": "prefix",
+   "notation": "prefix <",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "<"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "<"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_display_window_menu",
+   "desc": "Display window menu",
+   "extras": []
+  },
+  {
+   "localId": "prefix/=",
+   "context": "prefix",
+   "notation": "prefix =",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "="
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "="
+     }
+    ]
+   ],
+   "category": "copy",
+   "descKey": "packdesc_tmux_choose_a_paste_buffer_from_a_list",
+   "desc": "Choose a paste buffer from a list",
+   "extras": []
+  },
+  {
+   "localId": "prefix/>",
+   "context": "prefix",
+   "notation": "prefix >",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": ">"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": ">"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_display_pane_menu",
+   "desc": "Display pane menu",
+   "extras": []
+  },
+  {
+   "localId": "prefix/?",
+   "context": "prefix",
+   "notation": "prefix ?",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "?"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "?"
+     }
+    ]
+   ],
+   "category": "misc",
+   "descKey": "packdesc_tmux_list_key_bindings",
+   "desc": "List key bindings",
+   "extras": []
+  },
+  {
+   "localId": "prefix/C",
+   "context": "prefix",
+   "notation": "prefix C",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "C"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "C"
+     }
+    ]
+   ],
+   "category": "misc",
+   "descKey": "packdesc_tmux_customize_options",
+   "desc": "Customize options",
+   "extras": []
+  },
+  {
+   "localId": "prefix/D",
+   "context": "prefix",
+   "notation": "prefix D",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "D"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "D"
+     }
+    ]
+   ],
+   "category": "session",
+   "descKey": "packdesc_tmux_choose_and_detach_a_client_from_a_list",
+   "desc": "Choose and detach a client from a list",
+   "extras": []
+  },
+  {
+   "localId": "prefix/E",
+   "context": "prefix",
+   "notation": "prefix E",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "E"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "E"
+     }
+    ]
+   ],
+   "category": "misc",
+   "descKey": "packdesc_tmux_spread_panes_out_evenly",
+   "desc": "Spread panes out evenly",
+   "extras": []
+  },
+  {
+   "localId": "prefix/L",
+   "context": "prefix",
+   "notation": "prefix L",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "L"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "L"
+     }
+    ]
+   ],
+   "category": "session",
+   "descKey": "packdesc_tmux_switch_to_the_last_client",
+   "desc": "Switch to the last client",
+   "extras": []
+  },
+  {
+   "localId": "prefix/M",
+   "context": "prefix",
+   "notation": "prefix M",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "M"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "M"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_clear_the_marked_pane",
+   "desc": "Clear the marked pane",
+   "extras": []
+  },
+  {
+   "localId": "prefix/[",
+   "context": "prefix",
+   "notation": "prefix [",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "["
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "["
+     }
+    ]
+   ],
+   "category": "copy",
+   "descKey": "packdesc_tmux_enter_copy_mode",
+   "desc": "Enter copy mode",
+   "extras": []
+  },
+  {
+   "localId": "prefix/]",
+   "context": "prefix",
+   "notation": "prefix ]",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "]"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "]"
+     }
+    ]
+   ],
+   "category": "copy",
+   "descKey": "packdesc_tmux_paste_the_most_recent_paste_buffer",
+   "desc": "Paste the most recent paste buffer",
+   "extras": []
+  },
+  {
+   "localId": "prefix/c",
+   "context": "prefix",
+   "notation": "prefix c",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "c"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "c"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_create_a_new_window",
+   "desc": "Create a new window",
+   "extras": []
+  },
+  {
+   "localId": "prefix/d",
+   "context": "prefix",
+   "notation": "prefix d",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "d"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "d"
+     }
+    ]
+   ],
+   "category": "session",
+   "descKey": "packdesc_tmux_detach_the_current_client",
+   "desc": "Detach the current client",
+   "extras": []
+  },
+  {
+   "localId": "prefix/f",
+   "context": "prefix",
+   "notation": "prefix f",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "f"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "f"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_search_for_a_pane",
+   "desc": "Search for a pane",
+   "extras": []
+  },
+  {
+   "localId": "prefix/i",
+   "context": "prefix",
+   "notation": "prefix i",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "i"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "i"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_display_window_information",
+   "desc": "Display window information",
+   "extras": []
+  },
+  {
+   "localId": "prefix/l",
+   "context": "prefix",
+   "notation": "prefix l",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "l"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "l"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_select_the_previously_current_window",
+   "desc": "Select the previously current window",
+   "extras": []
+  },
+  {
+   "localId": "prefix/m",
+   "context": "prefix",
+   "notation": "prefix m",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "m"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "m"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_toggle_the_marked_pane",
+   "desc": "Toggle the marked pane",
+   "extras": []
+  },
+  {
+   "localId": "prefix/n",
+   "context": "prefix",
+   "notation": "prefix n",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "n"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "n"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_select_the_next_window",
+   "desc": "Select the next window",
+   "extras": []
+  },
+  {
+   "localId": "prefix/o",
+   "context": "prefix",
+   "notation": "prefix o",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "o"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "o"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_select_the_next_pane",
+   "desc": "Select the next pane",
+   "extras": []
+  },
+  {
+   "localId": "prefix/p",
+   "context": "prefix",
+   "notation": "prefix p",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "p"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "p"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_select_the_previous_window",
+   "desc": "Select the previous window",
+   "extras": []
+  },
+  {
+   "localId": "prefix/q",
+   "context": "prefix",
+   "notation": "prefix q",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "q"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "q"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_display_pane_numbers",
+   "desc": "Display pane numbers",
+   "extras": []
+  },
+  {
+   "localId": "prefix/r",
+   "context": "prefix",
+   "notation": "prefix r",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "r"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "r"
+     }
+    ]
+   ],
+   "category": "session",
+   "descKey": "packdesc_tmux_redraw_the_current_client",
+   "desc": "Redraw the current client",
+   "extras": []
+  },
+  {
+   "localId": "prefix/s",
+   "context": "prefix",
+   "notation": "prefix s",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "s"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "s"
+     }
+    ]
+   ],
+   "category": "session",
+   "descKey": "packdesc_tmux_choose_a_session_from_a_list",
+   "desc": "Choose a session from a list",
+   "extras": []
+  },
+  {
+   "localId": "prefix/t",
+   "context": "prefix",
+   "notation": "prefix t",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "t"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "t"
+     }
+    ]
+   ],
+   "category": "misc",
+   "descKey": "packdesc_tmux_show_a_clock",
+   "desc": "Show a clock",
+   "extras": []
+  },
+  {
+   "localId": "prefix/w",
+   "context": "prefix",
+   "notation": "prefix w",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "w"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "w"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_choose_a_window_from_a_list",
+   "desc": "Choose a window from a list",
+   "extras": []
+  },
+  {
+   "localId": "prefix/x",
+   "context": "prefix",
+   "notation": "prefix x",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "x"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "x"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_kill_the_active_pane",
+   "desc": "Kill the active pane",
+   "extras": []
+  },
+  {
+   "localId": "prefix/z",
+   "context": "prefix",
+   "notation": "prefix z",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "z"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "z"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_zoom_the_active_pane",
+   "desc": "Zoom the active pane",
+   "extras": []
+  },
+  {
+   "localId": "prefix/{",
+   "context": "prefix",
+   "notation": "prefix {",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "{"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "{"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_swap_the_active_pane_with_the_pane_above",
+   "desc": "Swap the active pane with the pane above",
+   "extras": []
+  },
+  {
+   "localId": "prefix/}",
+   "context": "prefix",
+   "notation": "prefix }",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "}"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "}"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_swap_the_active_pane_with_the_pane_below",
+   "desc": "Swap the active pane with the pane below",
+   "extras": []
+  },
+  {
+   "localId": "prefix/~",
+   "context": "prefix",
+   "notation": "prefix ~",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "text": "~"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "text": "~"
+     }
+    ]
+   ],
+   "category": "misc",
+   "descKey": "packdesc_tmux_show_messages",
+   "desc": "Show messages",
+   "extras": []
+  },
+  {
+   "localId": "prefix/Up",
+   "context": "prefix",
+   "notation": "prefix Up",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "named": "UP"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "named": "UP"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_select_the_pane_above_the_active_pane",
+   "desc": "Select the pane above the active pane",
+   "extras": []
+  },
+  {
+   "localId": "prefix/Down",
+   "context": "prefix",
+   "notation": "prefix Down",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "named": "DOWN"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "named": "DOWN"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_select_the_pane_below_the_active_pane",
+   "desc": "Select the pane below the active pane",
+   "extras": []
+  },
+  {
+   "localId": "prefix/Left",
+   "context": "prefix",
+   "notation": "prefix Left",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "named": "LEFT"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "named": "LEFT"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_select_the_pane_to_the_left_of_the_active_pane",
+   "desc": "Select the pane to the left of the active pane",
+   "extras": []
+  },
+  {
+   "localId": "prefix/Right",
+   "context": "prefix",
+   "notation": "prefix Right",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 0,
+     "named": "RIGHT"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 0,
+      "named": "RIGHT"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_select_the_pane_to_the_right_of_the_active_pane",
+   "desc": "Select the pane to the right of the active pane",
+   "extras": []
+  },
+  {
+   "localId": "prefix/M-1",
+   "context": "prefix",
+   "notation": "prefix M-1",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 8,
+     "text": "1"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 8,
+      "text": "1"
+     }
+    ]
+   ],
+   "category": "layout",
+   "descKey": "packdesc_tmux_set_the_even_horizontal_layout",
+   "desc": "Set the even-horizontal layout",
+   "extras": []
+  },
+  {
+   "localId": "prefix/M-2",
+   "context": "prefix",
+   "notation": "prefix M-2",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 8,
+     "text": "2"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 8,
+      "text": "2"
+     }
+    ]
+   ],
+   "category": "layout",
+   "descKey": "packdesc_tmux_set_the_even_vertical_layout",
+   "desc": "Set the even-vertical layout",
+   "extras": []
+  },
+  {
+   "localId": "prefix/M-3",
+   "context": "prefix",
+   "notation": "prefix M-3",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 8,
+     "text": "3"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 8,
+      "text": "3"
+     }
+    ]
+   ],
+   "category": "layout",
+   "descKey": "packdesc_tmux_set_the_main_horizontal_layout",
+   "desc": "Set the main-horizontal layout",
+   "extras": []
+  },
+  {
+   "localId": "prefix/M-4",
+   "context": "prefix",
+   "notation": "prefix M-4",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 8,
+     "text": "4"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 8,
+      "text": "4"
+     }
+    ]
+   ],
+   "category": "layout",
+   "descKey": "packdesc_tmux_set_the_main_vertical_layout",
+   "desc": "Set the main-vertical layout",
+   "extras": []
+  },
+  {
+   "localId": "prefix/M-5",
+   "context": "prefix",
+   "notation": "prefix M-5",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 8,
+     "text": "5"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 8,
+      "text": "5"
+     }
+    ]
+   ],
+   "category": "layout",
+   "descKey": "packdesc_tmux_select_the_tiled_layout",
+   "desc": "Select the tiled layout",
+   "extras": []
+  },
+  {
+   "localId": "prefix/M-6",
+   "context": "prefix",
+   "notation": "prefix M-6",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 8,
+     "text": "6"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 8,
+      "text": "6"
+     }
+    ]
+   ],
+   "category": "layout",
+   "descKey": "packdesc_tmux_set_the_main_horizontal_mirrored_layout",
+   "desc": "Set the main-horizontal-mirrored layout",
+   "extras": []
+  },
+  {
+   "localId": "prefix/M-7",
+   "context": "prefix",
+   "notation": "prefix M-7",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 8,
+     "text": "7"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 8,
+      "text": "7"
+     }
+    ]
+   ],
+   "category": "layout",
+   "descKey": "packdesc_tmux_set_the_main_vertical_mirrored_layout",
+   "desc": "Set the main-vertical-mirrored layout",
+   "extras": []
+  },
+  {
+   "localId": "prefix/M-n",
+   "context": "prefix",
+   "notation": "prefix M-n",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 8,
+     "text": "n"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 8,
+      "text": "n"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_select_the_next_window_with_an_alert",
+   "desc": "Select the next window with an alert",
+   "extras": []
+  },
+  {
+   "localId": "prefix/M-o",
+   "context": "prefix",
+   "notation": "prefix M-o",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 8,
+     "text": "o"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 8,
+      "text": "o"
+     }
+    ]
+   ],
+   "category": "misc",
+   "descKey": "packdesc_tmux_rotate_through_the_panes_in_reverse",
+   "desc": "Rotate through the panes in reverse",
+   "extras": []
+  },
+  {
+   "localId": "prefix/M-p",
+   "context": "prefix",
+   "notation": "prefix M-p",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 8,
+     "text": "p"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 8,
+      "text": "p"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_select_the_previous_window_with_an_alert",
+   "desc": "Select the previous window with an alert",
+   "extras": []
+  },
+  {
+   "localId": "prefix/M-Up",
+   "context": "prefix",
+   "notation": "prefix M-Up",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 8,
+     "named": "UP"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 8,
+      "named": "UP"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_resize_the_pane_up_by_5",
+   "desc": "Resize the pane up by 5",
+   "extras": []
+  },
+  {
+   "localId": "prefix/M-Down",
+   "context": "prefix",
+   "notation": "prefix M-Down",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 8,
+     "named": "DOWN"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 8,
+      "named": "DOWN"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_resize_the_pane_down_by_5",
+   "desc": "Resize the pane down by 5",
+   "extras": []
+  },
+  {
+   "localId": "prefix/M-Left",
+   "context": "prefix",
+   "notation": "prefix M-Left",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 8,
+     "named": "LEFT"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 8,
+      "named": "LEFT"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_resize_the_pane_left_by_5",
+   "desc": "Resize the pane left by 5",
+   "extras": []
+  },
+  {
+   "localId": "prefix/M-Right",
+   "context": "prefix",
+   "notation": "prefix M-Right",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 8,
+     "named": "RIGHT"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 8,
+      "named": "RIGHT"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_resize_the_pane_right_by_5",
+   "desc": "Resize the pane right by 5",
+   "extras": []
+  },
+  {
+   "localId": "prefix/prefix",
+   "context": "prefix",
+   "notation": "prefix prefix",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "option": "prefix"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "option": "prefix"
+     }
+    ]
+   ],
+   "category": "misc",
+   "descKey": "packdesc_tmux_send_the_prefix_key",
+   "desc": "Send the prefix key",
+   "extras": []
+  },
+  {
+   "localId": "prefix/C-o",
+   "context": "prefix",
+   "notation": "prefix C-o",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 4,
+     "text": "o"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 4,
+      "text": "o"
+     }
+    ]
+   ],
+   "category": "misc",
+   "descKey": "packdesc_tmux_rotate_through_the_panes",
+   "desc": "Rotate through the panes",
+   "extras": []
+  },
+  {
+   "localId": "prefix/C-z",
+   "context": "prefix",
+   "notation": "prefix C-z",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 4,
+     "text": "z"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 4,
+      "text": "z"
+     }
+    ]
+   ],
+   "category": "session",
+   "descKey": "packdesc_tmux_suspend_the_current_client",
+   "desc": "Suspend the current client",
+   "extras": []
+  },
+  {
+   "localId": "prefix/C-Up",
+   "context": "prefix",
+   "notation": "prefix C-Up",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 4,
+     "named": "UP"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 4,
+      "named": "UP"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_resize_the_pane_up",
+   "desc": "Resize the pane up",
+   "extras": []
+  },
+  {
+   "localId": "prefix/C-Down",
+   "context": "prefix",
+   "notation": "prefix C-Down",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 4,
+     "named": "DOWN"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 4,
+      "named": "DOWN"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_resize_the_pane_down",
+   "desc": "Resize the pane down",
+   "extras": []
+  },
+  {
+   "localId": "prefix/C-Left",
+   "context": "prefix",
+   "notation": "prefix C-Left",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 4,
+     "named": "LEFT"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 4,
+      "named": "LEFT"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_resize_the_pane_left",
+   "desc": "Resize the pane left",
+   "extras": []
+  },
+  {
+   "localId": "prefix/C-Right",
+   "context": "prefix",
+   "notation": "prefix C-Right",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 4,
+     "named": "RIGHT"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 4,
+      "named": "RIGHT"
+     }
+    ]
+   ],
+   "category": "pane",
+   "descKey": "packdesc_tmux_resize_the_pane_right",
+   "desc": "Resize the pane right",
+   "extras": []
+  },
+  {
+   "localId": "prefix/S-Up",
+   "context": "prefix",
+   "notation": "prefix S-Up",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 1,
+     "named": "UP"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 1,
+      "named": "UP"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_move_the_visible_part_of_the_window_up",
+   "desc": "Move the visible part of the window up",
+   "extras": []
+  },
+  {
+   "localId": "prefix/S-Down",
+   "context": "prefix",
+   "notation": "prefix S-Down",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 1,
+     "named": "DOWN"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 1,
+      "named": "DOWN"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_move_the_visible_part_of_the_window_down",
+   "desc": "Move the visible part of the window down",
+   "extras": []
+  },
+  {
+   "localId": "prefix/S-Left",
+   "context": "prefix",
+   "notation": "prefix S-Left",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 1,
+     "named": "LEFT"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 1,
+      "named": "LEFT"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_move_the_visible_part_of_the_window_left",
+   "desc": "Move the visible part of the window left",
+   "extras": []
+  },
+  {
+   "localId": "prefix/S-Right",
+   "context": "prefix",
+   "notation": "prefix S-Right",
+   "steps": [
+    {
+     "option": "prefix"
+    },
+    {
+     "mods": 1,
+     "named": "RIGHT"
+    }
+   ],
+   "alternates": [
+    [
+     {
+      "option": "prefix2"
+     },
+     {
+      "mods": 1,
+      "named": "RIGHT"
+     }
+    ]
+   ],
+   "category": "window",
+   "descKey": "packdesc_tmux_move_the_visible_part_of_the_window_right",
+   "desc": "Move the visible part of the window right",
+   "extras": []
+  }
+ ]
+}

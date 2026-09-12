@@ -1,0 +1,36 @@
+# bash completion for wallpaper-weather
+_wallpaper_weather() {
+  local cur prev words cword
+  _init_completion 2>/dev/null || {
+    cur=${COMP_WORDS[COMP_CWORD]}
+    prev=${COMP_WORDS[COMP_CWORD-1]}
+    cword=$COMP_CWORD
+  }
+
+  local moods="rain day night"
+  local flags="enabled drift parallax grain power-save"
+  local presets="clear storm drizzle shower sunshower sunshine goldenhour noir"
+  local verbs="status mood cycle auto sync reset menu edit path help"
+
+  if (( cword == 1 )); then
+    COMPREPLY=($(compgen -W "$moods $flags $presets $verbs intensity wind --help" -- "$cur"))
+    return
+  fi
+
+  case "$prev" in
+  rain | day | night | enabled | drift | parallax | grain | power-save)
+    COMPREPLY=($(compgen -W "on off toggle" -- "$cur")) ;;
+  intensity)
+    COMPREPLY=($(compgen -W "0.3 0.5 0.8 1.0 1.3 1.6 2.0 +0.1 -0.1" -- "$cur")) ;;
+  wind)
+    COMPREPLY=($(compgen -W "-1 -0.5 0 0.3 0.6 1 +0.1 -0.1" -- "$cur")) ;;
+  status)
+    COMPREPLY=($(compgen -W "--json" -- "$cur")) ;;
+  mood)
+    COMPREPLY=($(compgen -W "on off" -- "$cur")) ;;
+  *)
+    # `mood` takes three booleans in a row.
+    [[ ${COMP_WORDS[1]} == mood ]] && COMPREPLY=($(compgen -W "on off" -- "$cur")) ;;
+  esac
+}
+complete -F _wallpaper_weather wallpaper-weather

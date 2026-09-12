@@ -1,0 +1,6 @@
+#!/bin/bash
+# Toggle the Custom Font overlay via the Omarchy shell IPC. Meant to be
+# symlinked into ~/.local/bin so users can type `omarchy-custom-font`
+# instead of the full IPC command.
+set -e
+exec omarchy-shell shell toggle io.github.whiskeytuesday.custom-font

@@ -1,0 +1,34 @@
+/* omacord layer: flat
+   Strips Discord's drop shadows and elevation gradients in favour of
+   single-pixel borders, the way Omarchy separates surfaces. */
+
+[class*="modal_"],
+[class*="menu_"][role="menu"],
+[class*="popout_"],
+[class*="layer_"] > [class*="popout"],
+[class*="autocomplete_"],
+[class*="messagesPopout"],
+[class*="tooltip_"] {
+  box-shadow: none !important;
+  border: 1px solid var(--oc-border) !important;
+}
+
+[class*="elevation"],
+[class*="scroller_"],
+[class*="header_"] {
+  box-shadow: none !important;
+}
+
+/* Section rules become hairlines instead of shaded bands. */
+[class*="divider_"],
+[class*="separator_"] {
+  background-color: var(--oc-border) !important;
+  border-color: var(--oc-border) !important;
+}
+
+/* Chat header and members list get the same hairline as Hyprland borders. */
+[class*="title_"][class*="container_"],
+[class*="membersWrap_"] {
+  border-color: var(--oc-border) !important;
+  box-shadow: none !important;
+}

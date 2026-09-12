@@ -1,0 +1,215 @@
+{
+  "bar": {
+    "centerAnchor": "omarchy.clock",
+    "layout": {
+      "center": [
+        {
+          "id": "omarchy.indicators"
+        },
+        {
+          "id": "ryrobes.beatbar",
+          "mode": "Aurora"
+        },
+        {
+          "id": "crmne.lyrics"
+        },
+        {
+          "format": "HH:mm",
+          "formatAlt": "d MMMM 'W'ww yyyy",
+          "id": "omarchy.clock",
+          "verticalFormat": "HH\n—\nmm"
+        },
+        {
+          "id": "omarchy.system-update"
+        },
+        {
+          "id": "omarchy.keyboard-layout"
+        },
+        {
+          "audioQuality": "320 kbps",
+          "clientId": "",
+          "deviceName": "Omarchy Spotify",
+          "fixedBarWidth": "Off",
+          "id": "quickshell.spotify",
+          "idleShutdownMinutes": 15,
+          "maxBarTextWidth": "240",
+          "scrollBarText": "Off",
+          "scrollSpeed": "1",
+          "shortcutHints": "Off",
+          "shortcutPlayer": "Omarchy Music app",
+          "showArtistName": "Off",
+          "showArtwork": "On",
+          "showLyrics": "On",
+          "showMiniPlayer": "On",
+          "showPausedTrack": "On",
+          "showTrackTitle": "On",
+          "showVinylRecord": "Off"
+        },
+        {
+          "id": "prusso.bisaiko"
+        }
+      ],
+      "left": [
+        {
+          "id": "omarchy.menu"
+        },
+        {
+          "id": "io.github.anooplamba.workspace-preview"
+        },
+        {
+          "id": "gladimdim.config-sync"
+        }
+      ],
+      "right": [
+        {
+          "id": "omarchy.tray"
+        },
+        {
+          "id": "omarchy.spacer"
+        },
+        {
+          "id": "agx.screen-time"
+        },
+        {
+          "id": "alexzeitler.ytdlp"
+        },
+        {
+          "id": "co.klair.wallarchy"
+        },
+        {
+          "id": "esemczak.theme-modes"
+        },
+        {
+          "id": "io.github.rr-codebase.wallpaper-weather"
+        },
+        {
+          "activeProfile": "islands",
+          "border": true,
+          "gap": 24,
+          "id": "io.github.jcarcinogen.rice-bar",
+          "opacity": 100,
+          "preset": "islands",
+          "profileVersion": 1,
+          "profiles": {
+            "bracket": {
+              "border": true,
+              "gap": 8,
+              "opacity": 20,
+              "radius": 0
+            },
+            "islands": {
+              "border": true,
+              "gap": 24,
+              "opacity": 100,
+              "radius": 24
+            },
+            "material": {
+              "border": false,
+              "gap": 8,
+              "opacity": 92,
+              "radius": 20
+            },
+            "minimal": {
+              "border": false,
+              "gap": 2,
+              "opacity": 55,
+              "radius": 0
+            },
+            "omarchy": {
+              "border": false,
+              "gap": 0,
+              "opacity": 100,
+              "radius": 0
+            },
+            "outline": {
+              "border": true,
+              "gap": 6,
+              "opacity": 20,
+              "radius": 14
+            },
+            "pills": {
+              "border": true,
+              "gap": 3,
+              "opacity": 90,
+              "radius": 18
+            },
+            "rail": {
+              "border": false,
+              "gap": 4,
+              "opacity": 60,
+              "radius": 0
+            }
+          },
+          "radius": 24
+        },
+        {
+          "id": "bar-glow"
+        },
+        {
+          "id": "omarchy.agents"
+        },
+        {
+          "id": "io.github.mshareef-git.omavibes"
+        },
+        {
+          "autoCheckIntervalHours": 1,
+          "autoCheckUpdates": true,
+          "id": "omaplug"
+        },
+        {
+          "id": "crmne.hyprmoncfg"
+        },
+        {
+          "id": "omarchy.bluetooth"
+        },
+        {
+          "id": "omarchy.audio"
+        },
+        {
+          "id": "omarchy.network"
+        },
+        {
+          "id": "io.github.twiking.omasettings"
+        },
+        {
+          "id": "omarchy.power"
+        }
+      ]
+    },
+    "position": "top",
+    "transparent": false
+  },
+  "cloneSourceRestores": [
+    "io.github.sirjul1337.lock-explorer",
+    "io.github.rr-codebase.wallpaper-weather"
+  ],
+  "disabledPlugins": [
+    "omarchy.lock",
+    "omarchy.background"
+  ],
+  "idle": {
+    "lock": 300,
+    "screensaver": 150
+  },
+  "plugins": [
+    {
+      "id": "b.okomart"
+    },
+    {
+      "id": "wmfeht.border-fx"
+    },
+    {
+      "id": "io.github.sirjul1337.lock-explorer"
+    },
+    {
+      "id": "bobbynicholas.omaland"
+    },
+    {
+      "id": "ivanskodje.animated-backgrounds"
+    },
+    {
+      "id": "io.github.aswenia.omacord"
+    }
+  ],
+  "version": 1
+}

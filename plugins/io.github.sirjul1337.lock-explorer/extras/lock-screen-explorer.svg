@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Flat, abstract: a screen and a passphrase, in the explorer's own muted
+       terminal palette. No gradients, no padlock. -->
+  <rect x="2" y="2" width="60" height="60" rx="8" fill="#2d353b"/>
+  <rect x="14" y="17" width="36" height="26" fill="none" stroke="#d3c6aa" stroke-width="3"/>
+  <circle cx="25" cy="30" r="3" fill="#a7c080"/>
+  <circle cx="32" cy="30" r="3" fill="#a7c080"/>
+  <circle cx="39" cy="30" r="3" fill="#a7c080"/>
+  <rect x="14" y="49" width="14" height="3" fill="#a7c080"/>
+  <rect x="31" y="49" width="7" height="3" fill="#546063"/>
+  <rect x="41" y="49" width="9" height="3" fill="#546063"/>
+</svg>

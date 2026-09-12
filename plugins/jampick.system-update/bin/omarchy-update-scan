@@ -1,0 +1,330 @@
+#!/bin/bash
+# Report every pending system change as JSON, for the bar's update panel.
+#
+# Read-only by design. checkupdates syncs a throwaway database under
+# $CHECKUPDATES_DB and never touches the real pacman database or its lock, so
+# this can run while pacman is busy and can never leave the system half-synced.
+#
+# Every byte this prints is collected by a QML StdioCollector in the shell
+# process, and StdioCollector has no size limit of its own: it buffers a
+# process to completion and then hands QML the lot. So output is capped here,
+# in a separate process, before the shell ever sees it. Hitting a cap is
+# reported as an error rather than as truncated JSON, because half a JSON
+# document parses as nothing useful and would look like a bug in the panel.
+#
+# Rows are capped as well as bytes. Every row printed here becomes a delegate
+# in the persistent shell, so cardinality is bounded before the JSON leaves
+# this process. Rows that change something currently running are ordered first
+# and so are never the ones dropped, and `counts` and `omitted` carry the true
+# totals so the panel can say how many it is not showing rather than quietly
+# understate the update.
+#
+# It re-execs itself through bin/omarchy-update-bounded, so the shell's child
+# is a boundary rather than this script: one process group, a deadline, and a
+# byte cap that hold for every descendant. Stopping the scan from QML stops the
+# whole tree of timeout, checkupdates, fakeroot, pacman, git, jq and awk, not
+# just whichever process the shell happens to have a handle on.
+#
+# Usage: omarchy-update-scan [--nosync] [--no-aur]
+#   --nosync   reuse the last synced temporary database (no network)
+#   --no-aur   skip the AUR query even when foreign packages are installed
+
+set -uo pipefail
+export LC_ALL=C
+
+# Resolved with parameter expansion rather than dirname, because this has to
+# hold even when the caller's PATH has nothing on it: that is one of the cases
+# this script promises to answer with JSON instead of a crash.
+here=${BASH_SOURCE[0]%/*}
+[[ $here == "${BASH_SOURCE[0]}" ]] && here=.
+
+# Generous next to real output (about 12 KiB for 51 pending packages) and small
+# next to anything that could hurt the shell.
+# Overridable only so the test suite can prove the caps actually fire; the
+# shell never sets these.
+readonly MAX_LIST_BYTES=${OMARCHY_UPDATE_SCAN_MAX_LIST:-$((512 * 1024))}
+readonly MAX_OUTPUT_BYTES=${OMARCHY_UPDATE_SCAN_MAX_OUTPUT:-$((512 * 1024))}
+
+# Row caps. A full-system update after months away is a few hundred packages;
+# past that the list has stopped being something anyone reads row by row, and
+# the honest answer is a count plus a pointer at the terminal.
+readonly MAX_PACKAGE_ROWS=${OMARCHY_UPDATE_SCAN_MAX_ROWS:-250}
+readonly MAX_AUR_ROWS=${OMARCHY_UPDATE_SCAN_MAX_AUR_ROWS:-100}
+readonly MAX_DEV_ROWS=${OMARCHY_UPDATE_SCAN_MAX_DEV_ROWS:-50}
+
+# pacman -Si describes every pending package in full. It is streamed to a file
+# here rather than held, so this is a bound on how much work it may do, not on
+# memory, and it is generous next to the ~1 KiB per package it really prints.
+readonly MAX_SI_BYTES=${OMARCHY_UPDATE_SCAN_MAX_SI:-$((4 * 1024 * 1024))}
+
+# The whole scan, descendants included. Chosen to fire before the panel's own
+# watchdog, so the thing that gives up first is the one that can actually stop
+# the work rather than just stop waiting for it.
+readonly SCAN_DEADLINE=${OMARCHY_UPDATE_SCAN_DEADLINE:-150}
+
+# Establish the boundary, then come back through it. The cap given to the
+# launcher is deliberately looser than the one enforced below, so that a scan
+# that overruns is reported as the JSON error this script writes rather than as
+# a document the launcher cut in half.
+if [[ -z ${OMARCHY_UPDATE_BOUNDED:-} ]]; then
+  # Fail closed. An installation missing the launcher gets an error in the
+  # panel, not a scan that quietly runs with no boundary around it.
+  if [[ ! -x $here/omarchy-update-bounded ]]; then
+    printf '{"ok":false,"error":"The update scan is missing its process boundary. Reinstall the plugin.","omarchy":null,"dev":[],"packages":[],"aur":[],"totalBytes":0,"restartCount":0,"counts":{"packages":0,"aur":0,"dev":0},"omitted":{"packages":0,"aur":0,"dev":0}}\n'
+    exit 0
+  fi
+  export OMARCHY_UPDATE_BOUNDED=1
+  exec "$here/omarchy-update-bounded" \
+    "$SCAN_DEADLINE" "$((MAX_OUTPUT_BYTES + 4096))" -- "$0" "$@"
+fi
+
+workdir=$(mktemp -d) || {
+  printf '{"ok":false,"error":"Could not create a temporary directory.","omarchy":null,"dev":[],"packages":[],"aur":[],"totalBytes":0,"restartCount":0,"counts":{"packages":0,"aur":0,"dev":0},"omitted":{"packages":0,"aur":0,"dev":0}}\n'
+  exit 0
+}
+trap 'rm -rf "$workdir"' EXIT
+
+sync_args=()
+want_aur=1
+for arg in "$@"; do
+  case $arg in
+    --nosync) sync_args+=(--nosync) ;;
+    --no-aur) want_aur=0 ;;
+  esac
+done
+
+# Always answer with JSON, including on failure. The panel renders `error`
+# verbatim, so it has to read as a sentence to a person, not a stack trace.
+bail() {
+  jq -n --arg m "$1" '{
+    ok: false, error: $m, omarchy: null, dev: [],
+    packages: [], aur: [], totalBytes: 0, restartCount: 0,
+    counts: {packages: 0, aur: 0, dev: 0},
+    omitted: {packages: 0, aur: 0, dev: 0}
+  }'
+  exit 0
+}
+
+command -v jq >/dev/null 2>&1 || {
+  printf '{"ok":false,"error":"jq is not installed.","omarchy":null,"dev":[],"packages":[],"aur":[],"totalBytes":0,"restartCount":0,"counts":{"packages":0,"aur":0,"dev":0},"omitted":{"packages":0,"aur":0,"dev":0}}\n'
+  exit 0
+}
+command -v checkupdates >/dev/null 2>&1 ||
+  bail "checkupdates is missing. Install pacman-contrib to see pending changes."
+
+# Run a command with its output capped, without losing its exit status the way
+# a `| head -c` pipeline would. Prints nothing; the caller reads the file.
+capped() {
+  local out=$1 limit=$2
+  shift 2
+  "$@" 2>/dev/null | head -c "$limit" >"$out"
+  return "${PIPESTATUS[0]}"
+}
+
+# --- pending repo packages -------------------------------------------------
+
+# The temporary database is this plugin's own, verified private directory, not
+# the shared predictable path checkupdates would pick by default. See
+# omarchy-update-db.sh for what is checked and why. When it has to fall back to
+# a fresh one there is no previous sync to reuse, so --nosync is not honourable
+# and is dropped rather than silently reporting a database with nothing in it.
+# shellcheck source=./omarchy-update-db.sh
+source "$here/omarchy-update-db.sh" 2>/dev/null ||
+  bail "The update scan is missing part of itself. Reinstall the plugin."
+resolve_update_db "$workdir" ||
+  bail "Could not create a private package database. Refusing to read a shared one."
+export CHECKUPDATES_DB=$UPDATE_DB
+if ((UPDATE_DB_EPHEMERAL)); then
+  sync_args=()
+fi
+
+capped "$workdir/updates" "$MAX_LIST_BYTES" timeout 120 checkupdates --nocolor "${sync_args[@]}"
+rc=$?
+# 0 = updates found, 2 = system is current. Anything else is a real failure,
+# most often no route to the mirrors.
+if ((rc != 0 && rc != 2)); then
+  bail "Could not reach the Arch mirrors. Check your connection, then refresh."
+fi
+if (($(stat -c%s "$workdir/updates") >= MAX_LIST_BYTES)); then
+  bail "The pending update list is unexpectedly large. Run omarchy-update in a terminal."
+fi
+
+names=()
+while read -r name from _arrow to; do
+  [[ -n ${name:-} && -n ${to:-} ]] || continue
+  names+=("$name")
+done <"$workdir/updates"
+
+# --- repo and download size, from the same temporary database --------------
+#
+# The system database has not been synced, so it still describes the versions
+# already installed. Asking it for sizes would report the old package. The
+# temporary database checkupdates just built is the only one that knows what
+# the new versions weigh.
+
+declare -A repo_of=() bytes_of=()
+if ((${#names[@]} > 0)); then
+  # Given the same deadline and cap as everything else. A package this misses
+  # keeps its name and both versions and loses only its size, which is
+  # decoration next to the decision the panel is there to support.
+  capped "$workdir/si" "$MAX_SI_BYTES" \
+    timeout 60 pacman -Si --dbpath "$CHECKUPDATES_DB" "${names[@]}"
+  cur=""
+  pending_repo=""
+  while IFS= read -r line; do
+    case $line in
+      "Repository "*) pending_repo=${line#*: } ;;
+      "Name "*)
+        cur=${line#*: }
+        # A package carried by more than one repository is listed more than
+        # once. First listing wins, which is the one pacman would install.
+        if [[ -n ${repo_of[$cur]:-} ]]; then cur=""; else repo_of[$cur]=$pending_repo; fi
+        ;;
+      "Download Size "*)
+        [[ -n $cur ]] || continue
+        size=${line#*: }
+        value=${size% *}
+        unit=${size##* }
+        case $unit in
+          B) mult=1 ;;
+          KiB) mult=1024 ;;
+          MiB) mult=1048576 ;;
+          GiB) mult=1073741824 ;;
+          *) mult=0 ;;
+        esac
+        bytes_of[$cur]=$(awk -v v="$value" -v m="$mult" 'BEGIN { printf "%d", v * m }')
+        cur=""
+        ;;
+    esac
+  done <"$workdir/si"
+fi
+
+# --- what a change actually costs you --------------------------------------
+#
+# Omarchy's own post-update prompt (omarchy-update-restart) reboots for a new
+# kernel or a replaced Hyprland binary, and restarts services for the rest.
+# These two tiers mirror that, so the panel promises exactly what the update
+# will ask for afterwards.
+
+classify() {
+  case $1 in
+    linux|linux-lts|linux-zen|linux-hardened|linux-rt|linux-rt-lts|linux-firmware*|\
+    systemd|systemd-libs|systemd-sysvcompat|mkinitcpio|grub|limine|refind|sbctl|\
+    amd-ucode|intel-ucode|nvidia|nvidia-dkms|nvidia-open|nvidia-open-dkms|hyprland)
+      echo reboot ;;
+    mesa|mesa-utils|libdrm|libglvnd|vulkan-*|xorg-*|wayland|nvidia-utils|\
+    networkmanager|libnm|pipewire|pipewire-*|wireplumber|bluez|bluez-utils|\
+    quickshell*|omarchy-*)
+      echo restart ;;
+    *) echo "" ;;
+  esac
+}
+
+# --- assemble --------------------------------------------------------------
+
+omarchy_json=null
+: >"$workdir/rows"
+while read -r name from _arrow to; do
+  [[ -n ${name:-} && -n ${to:-} ]] || continue
+  bytes=${bytes_of[$name]:-0}
+  repo=${repo_of[$name]:-}
+  # Omarchy itself is the reason the icon lit up. It belongs in the panel
+  # header, not buried alphabetically among fifty siblings.
+  if [[ $name == omarchy || $name == omarchy-dev ]]; then
+    omarchy_json=$(jq -n --arg n "$name" --arg f "$from" --arg t "$to" \
+      --arg r "$repo" --argjson b "${bytes:-0}" \
+      '{name:$n, from:$f, to:$t, repo:$r, bytes:$b}')
+    continue
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$name" "$from" "$to" "$repo" "$bytes" "$(classify "$name")" >>"$workdir/rows"
+done <"$workdir/updates"
+
+packages=$(jq -R -s '
+  split("\n") | map(select(length > 0) | split("\t") | {
+    name: .[0], from: .[1], to: .[2], repo: .[3],
+    bytes: (.[4] | tonumber? // 0),
+    tag: .[5]
+  }) | sort_by(.name)' <"$workdir/rows")
+
+# --- AUR -------------------------------------------------------------------
+#
+# Skipped entirely when nothing foreign is installed, which is the common case
+# and keeps the panel off the AUR RPC on every open.
+
+aur='[]'
+if ((want_aur)) && [[ -n $(pacman -Qqm 2>/dev/null | head -c 65536) ]]; then
+  helper=""
+  for h in yay paru; do command -v "$h" >/dev/null 2>&1 && { helper=$h; break; }; done
+  if [[ -n $helper ]]; then
+    capped "$workdir/aur" "$MAX_LIST_BYTES" timeout 60 "$helper" -Qua --color=never
+    if (($(stat -c%s "$workdir/aur") < MAX_LIST_BYTES)); then
+      aur=$(awk 'NF >= 4 { printf "%s\t%s\t%s\n", $1, $2, $4 }' <"$workdir/aur" |
+        jq -R -s 'split("\n") | map(select(length > 0) | split("\t") |
+          {name: .[0], from: .[1], to: .[2]}) | sort_by(.name)')
+      [[ -n $aur ]] || aur='[]'
+    fi
+  fi
+fi
+
+# --- Omarchy dev checkout --------------------------------------------------
+#
+# Only meaningful when OMARCHY_PATH points at a git checkout rather than the
+# packaged tree. Mirrors omarchy-update-available so the panel never disagrees
+# with the icon about whether a dev checkout is behind.
+
+dev='[]'
+omarchy_path=${OMARCHY_PATH:-/usr/share/omarchy}
+if [[ $omarchy_path != "/usr/share/omarchy" && -d $omarchy_path/.git ]]; then
+  upstream=$(git -C "$omarchy_path" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)
+  if [[ -n ${upstream:-} ]]; then
+    GIT_TERMINAL_PROMPT=0 timeout 10 git -C "$omarchy_path" fetch --quiet 2>/dev/null
+    dev=$(git -C "$omarchy_path" log --format='%h%x09%s' "HEAD..$upstream" 2>/dev/null |
+      head -"$MAX_DEV_ROWS" | cut -c1-200 | jq -R -s 'split("\n") | map(select(length > 0) | split("\t") |
+        {hash: .[0], subject: .[1]})')
+    [[ -n $dev ]] || dev='[]'
+  fi
+fi
+
+# Totals are taken from the full lists, then the lists are trimmed. The
+# summary line and the reboot warning stay true about the whole update even
+# when the panel is only showing the first few hundred rows of it.
+jq -n \
+  --argjson omarchy "$omarchy_json" \
+  --argjson packages "$packages" \
+  --argjson aur "$aur" \
+  --argjson dev "$dev" \
+  --argjson maxPackages "$MAX_PACKAGE_ROWS" \
+  --argjson maxAur "$MAX_AUR_ROWS" \
+  --argjson maxDev "$MAX_DEV_ROWS" \
+  '
+  # Consequential rows first, so a cap can only ever drop rows that land
+  # quietly on disk, never the kernel that makes the panel say REBOOT.
+  ($packages | map(select(.tag != "")) + map(select(.tag == ""))) as $ordered |
+  {
+    ok: true,
+    error: null,
+    omarchy: $omarchy,
+    dev: $dev[0:$maxDev],
+    packages: $ordered[0:$maxPackages],
+    aur: $aur[0:$maxAur],
+    counts: {
+      packages: ($packages | length),
+      aur: ($aur | length),
+      dev: ($dev | length)
+    },
+    omitted: {
+      packages: ([($packages | length) - $maxPackages, 0] | max),
+      aur: ([($aur | length) - $maxAur, 0] | max),
+      dev: ([($dev | length) - $maxDev, 0] | max)
+    },
+    totalBytes: (($packages | map(.bytes) | add // 0)
+                 + (if $omarchy == null then 0 else $omarchy.bytes end)),
+    restartCount: ($packages | map(select(.tag != "")) | length)
+  }' | head -c "$MAX_OUTPUT_BYTES" >"$workdir/out"
+
+if (($(stat -c%s "$workdir/out") >= MAX_OUTPUT_BYTES)); then
+  bail "The pending change list is too large to summarise. Run omarchy-update in a terminal."
+fi
+
+cat "$workdir/out"

@@ -1,0 +1,315 @@
+#!/bin/bash
+# wallarchy — Wallhaven wallpapers for Omarchy.
+#
+# All network and JSON work lives here so the QML side stays a thin renderer:
+# every plugin surface (bar widget, overlay, rotation service) shells out to
+# this script and parses the JSON it prints on stdout.
+#
+# Wallhaven's search API needs no credentials for SFW browsing, so there is no
+# onboarding step. An API key is only required to reach NSFW results; when one
+# is present it is read from a 0600 file and handed to curl over stdin, never
+# on argv.
+
+set -uo pipefail
+
+CONFIG_FILE="${WALLARCHY_CONFIG:-$HOME/.config/omarchy/wallarchy.json}"
+KEY_FILE="${WALLARCHY_KEY_FILE:-$HOME/.config/omarchy/wallarchy.key}"
+STATE_DIR="${WALLARCHY_STATE_DIR:-$HOME/.local/state/wallarchy}"
+CURRENT_FILE="$STATE_DIR/current.json"
+API="https://wallhaven.cc/api/v1"
+
+# Every file wallarchy writes carries this prefix, so pruning can never touch
+# a wallpaper that came with the theme or that the user dropped in by hand.
+FILE_PREFIX="wallhaven-"
+
+CONFIG_VERSION=2
+
+die() { echo "wallarchy: $*" >&2; exit 1; }
+
+# ---------------------------------------------------------------- config
+
+DEFAULT_CONFIG='{
+  "version": 2,
+  "query": "",
+  "categories": "100",
+  "purity": "100",
+  "sorting": "toplist",
+  "topRange": "1M",
+  "atleast": "1920x1080",
+  "ratios": "",
+  "rotateMinutes": 0,
+  "downloadDir": "",
+  "keepLast": 20
+}'
+
+# A config from an older schema is replaced rather than merged: the keys are
+# API parameters, and a half-migrated set of them produces confusing results
+# instead of an obvious failure.
+ensure_config() {
+  if [[ -f $CONFIG_FILE ]]; then
+    local version
+    version=$(jq -r '.version // 0' "$CONFIG_FILE" 2>/dev/null || echo 0)
+    [[ $version == "$CONFIG_VERSION" ]] && return 0
+    cp -f "$CONFIG_FILE" "$CONFIG_FILE.bak" 2>/dev/null
+    echo "wallarchy: config was schema v$version, replaced with v$CONFIG_VERSION (old copy at $CONFIG_FILE.bak)" >&2
+  fi
+  mkdir -p "$(dirname "$CONFIG_FILE")"
+  printf '%s\n' "$DEFAULT_CONFIG" >"$CONFIG_FILE"
+}
+
+cfg() {
+  ensure_config
+  jq -r --arg k "$1" --argjson d "$DEFAULT_CONFIG" \
+    'if (.[$k] == null) then ($d[$k] // "") else .[$k] end' "$CONFIG_FILE" 2>/dev/null ||
+    jq -r --arg k "$1" '.[$k] // ""' <<<"$DEFAULT_CONFIG"
+}
+
+# Keys whose values are JSON numbers rather than strings. Deciding by key
+# rather than by "does this parse as JSON" keeps a category bitfield like
+# `100` from silently becoming the number one hundred.
+NUMERIC_KEYS=" rotateMinutes keepLast version "
+
+cfg_set() {
+  ensure_config
+  local key=$1 value=$2 tmp
+  if [[ $NUMERIC_KEYS == *" $key "* ]]; then
+    [[ $value =~ ^-?[0-9]+$ ]] || die "$key must be a whole number, got: $value"
+    tmp=$(jq --arg k "$key" --argjson v "$value" '.[$k] = $v' "$CONFIG_FILE")
+  else
+    tmp=$(jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$CONFIG_FILE")
+  fi
+  [[ -n $tmp ]] || die "failed to update $key"
+  printf '%s\n' "$tmp" >"$CONFIG_FILE"
+}
+
+# ---------------------------------------------------------------- requests
+
+key_present() { [[ -s $KEY_FILE ]]; }
+
+key_set() {
+  local key=${1:-}
+  [[ -n $key ]] || { read -rsp "Wallhaven API key: " key; echo; }
+  [[ -n $key ]] || die "no key given"
+  mkdir -p "$(dirname "$KEY_FILE")"
+  umask 077
+  printf '%s\n' "$key" >"$KEY_FILE"
+  chmod 600 "$KEY_FILE"
+  echo "Saved to $KEY_FILE"
+}
+
+# curl config on stdin: an API key, when there is one, never reaches argv.
+curl_config() {
+  key_present && printf 'header = "X-API-Key: %s"\n' "$(<"$KEY_FILE")"
+  printf 'header = "Accept: application/json"\n'
+  return 0
+}
+
+api() { curl_config | curl -fsS --max-time 20 -K - "$1"; }
+
+urlencode() { jq -rn --arg v "$1" '$v|@uri'; }
+
+# ---------------------------------------------------------------- photos
+
+# Collapse a Wallhaven result down to the handful of fields the UI renders.
+# Keeping the shape stable here means the QML never has to know about the
+# API's field names.
+NORMALIZE='{
+  id: .id,
+  thumb: .thumbs.small,
+  preview: .thumbs.large,
+  full: .path,
+  color: ((.colors // [])[0] // "#222222"),
+  label: ((.resolution // "") + " · " + (.category // "")),
+  link: (.url // "https://wallhaven.cc"),
+  ext: (if (.file_type // "") == "image/png" then "png" else "jpg" end)
+}'
+
+search_params() {
+  local value
+  printf 'categories=%s&purity=%s' "$(cfg categories)" "$(cfg purity)"
+
+  value=$(cfg atleast); [[ -n $value ]] && printf '&atleast=%s' "$(urlencode "$value")"
+  value=$(cfg ratios);  [[ -n $value ]] && printf '&ratios=%s' "$(urlencode "$value")"
+  value=$(cfg query);   [[ -n $value ]] && printf '&q=%s' "$(urlencode "$value")"
+
+  local sorting
+  sorting=$(cfg sorting)
+  [[ -n $sorting ]] || sorting=toplist
+  printf '&sorting=%s' "$(urlencode "$sorting")"
+  # topRange is only meaningful for the toplist sorting; sending it otherwise
+  # is harmless but makes the request line harder to read when debugging.
+  if [[ $sorting == toplist ]]; then
+    value=$(cfg topRange); [[ -n $value ]] && printf '&topRange=%s' "$(urlencode "$value")"
+  fi
+  return 0
+}
+
+cmd_photos() {
+  local page=${1:-1}
+  [[ $page =~ ^[0-9]+$ ]] || die "page must be a number"
+  api "$API/search?$(search_params)&page=$page" | jq -c "[.data[] | $NORMALIZE]"
+}
+
+cmd_search() {
+  local query=${1:-} page=${2:-1}
+  [[ -n $query ]] || die "usage: wallarchy search <query> [page]"
+  api "$API/search?$(search_params)&q=$(urlencode "$query")&page=$page" |
+    jq -c "[.data[] | $NORMALIZE]"
+}
+
+# Wallhaven reseeds `sorting=random` on every request, so random results
+# cannot be paged through coherently. That is fine here: random is only ever
+# used to pick a single wallpaper, never to fill the grid.
+cmd_random() {
+  local params
+  params=$(search_params | sed 's/&sorting=[^&]*//; s/&topRange=[^&]*//')
+  api "$API/search?$params&sorting=random&page=1" | jq -c "first(.data[] | $NORMALIZE)"
+}
+
+# ---------------------------------------------------------------- applying
+
+current_theme() {
+  cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null || echo "default"
+}
+
+# Default to the current theme's user background folder so downloads join the
+# native per-theme pool and `omarchy theme bg next` cycles them for free.
+target_dir() {
+  local dir
+  dir=$(cfg downloadDir)
+  [[ -n $dir ]] || dir="$HOME/.config/omarchy/backgrounds/$(current_theme)"
+  printf '%s' "${dir/#\~/$HOME}"
+}
+
+apply_photo_json() {
+  local photo=$1 id url ext dir dest
+  id=$(jq -r '.id // empty' <<<"$photo")
+  [[ -n $id ]] || die "photo json has no id"
+  url=$(jq -r '.full // empty' <<<"$photo")
+  [[ -n $url ]] || die "photo json has no image url"
+  ext=$(jq -r '.ext // "jpg"' <<<"$photo")
+
+  dir=$(target_dir)
+  mkdir -p "$dir" || die "cannot create $dir"
+  dest="$dir/$FILE_PREFIX$id.$ext"
+
+  if [[ ! -s $dest ]]; then
+    local tmp
+    tmp=$(mktemp "$dir/.$FILE_PREFIX$id.XXXXXX") || die "cannot write to $dir"
+    if ! curl -fsSL --max-time 120 -o "$tmp" "$url"; then
+      rm -f "$tmp"
+      die "download failed for $id"
+    fi
+    # A truncated body or an HTML error page would otherwise become a black
+    # wallpaper with no explanation.
+    if [[ ! -s $tmp ]] || ! file -b --mime-type "$tmp" | grep -q '^image/'; then
+      rm -f "$tmp"
+      die "downloaded file for $id is not an image"
+    fi
+    mv -f "$tmp" "$dest"
+    chmod 644 "$dest"
+  fi
+
+  mkdir -p "$STATE_DIR"
+  jq -c --arg path "$dest" '. + {path: $path}' <<<"$photo" >"$CURRENT_FILE"
+  # The sidecar travels with the file, so the source page is still findable
+  # once the image is just another entry in the theme's rotation.
+  jq -c '{id, label, link}' <<<"$photo" >"$dest.source.json"
+
+  omarchy theme bg set "$dest" >/dev/null 2>&1 ||
+    omarchy-theme-bg-set "$dest" >/dev/null 2>&1 ||
+    die "failed to set background"
+
+  cmd_prune
+  printf '%s\n' "$dest"
+}
+
+cmd_apply() {
+  local arg=${1:-}
+  [[ -n $arg ]] || die "usage: wallarchy apply <wallpaper-id|photo-json>"
+  if jq -e '.id' <<<"$arg" >/dev/null 2>&1; then
+    apply_photo_json "$arg"
+  else
+    apply_photo_json "$(api "$API/w/$(urlencode "$arg")" | jq -c ".data | $NORMALIZE")"
+  fi
+}
+
+cmd_next() {
+  local photo
+  photo=$(cmd_random) || exit 1
+  [[ -n $photo && $photo != null ]] || die "no wallpaper matched the current filters"
+  apply_photo_json "$photo"
+}
+
+# Keep only the newest N wallarchy downloads; never touches anything without
+# our filename prefix.
+cmd_prune() {
+  local dir keep current
+  dir=$(target_dir)
+  keep=$(cfg keepLast)
+  [[ $keep =~ ^[0-9]+$ ]] || keep=20
+  ((keep > 0)) || return 0
+  current=$(readlink -f "$HOME/.local/state/omarchy/current/background" 2>/dev/null)
+
+  local -a files=()
+  while IFS= read -r -d '' f; do files+=("$f"); done < <(
+    find "$dir" -maxdepth 1 -type f \( -name "$FILE_PREFIX*.jpg" -o -name "$FILE_PREFIX*.png" \) \
+      -printf '%T@\t%p\0' 2>/dev/null | sort -zrn | cut -zf2-
+  )
+  local i
+  for ((i = keep; i < ${#files[@]}; i++)); do
+    [[ ${files[$i]} == "$current" ]] && continue
+    rm -f "${files[$i]}" "${files[$i]}.source.json"
+  done
+}
+
+cmd_current() {
+  [[ -s $CURRENT_FILE ]] && cat "$CURRENT_FILE" || echo '{}'
+}
+
+# ---------------------------------------------------------------- dispatch
+
+case "${1:-help}" in
+  photos)  shift; cmd_photos "$@" ;;
+  search)  shift; cmd_search "$@" ;;
+  random)  shift; cmd_random "$@" ;;
+  apply)   shift; cmd_apply "$@" ;;
+  next)    shift; cmd_next "$@" ;;
+  prune)   shift; cmd_prune "$@" ;;
+  current) shift; cmd_current "$@" ;;
+  config)
+    shift
+    case "${1:-show}" in
+      show) ensure_config; cat "$CONFIG_FILE" ;;
+      path) echo "$CONFIG_FILE" ;;
+      get)  cfg "${2:?usage: wallarchy config get <key>}" ;;
+      set)  cfg_set "${2:?usage: wallarchy config set <key> <value>}" "${3-}" ;;
+      *)    die "unknown config subcommand: $1" ;;
+    esac
+    ;;
+  key)
+    shift
+    case "${1:-status}" in
+      set)    shift; key_set "${1-}" ;;
+      path)   echo "$KEY_FILE" ;;
+      status) key_present && echo "configured" || { echo "none (only needed for NSFW results)"; exit 1; } ;;
+      *)      die "unknown key subcommand: $1" ;;
+    esac
+    ;;
+  help | -h | --help)
+    cat <<'USAGE'
+wallarchy — Wallhaven wallpapers for Omarchy
+
+  wallarchy photos [page]        Wallpapers matching the config, normalized JSON
+  wallarchy search <q> [page]    Search, ignoring the configured query
+  wallarchy random               One random wallpaper matching the config
+  wallarchy apply <id|json>      Download and set as background
+  wallarchy next                 Random wallpaper per config, applied
+  wallarchy current              The wallpaper currently applied
+  wallarchy prune                Trim the download folder to keepLast
+  wallarchy config show|get|set  Read or edit ~/.config/omarchy/wallarchy.json
+  wallarchy key set [key]        Optional API key, only needed for NSFW results
+USAGE
+    ;;
+  *) die "unknown command: $1 (try: wallarchy help)" ;;
+esac
