@@ -4,9 +4,6 @@
     "layout": {
       "center": [
         {
-          "id": "omarchy.indicators"
-        },
-        {
           "id": "ryrobes.beatbar",
           "mode": "Aurora"
         },
@@ -32,6 +29,9 @@
         },
         {
           "id": "crmne.lyrics"
+        },
+        {
+          "id": "omarchy.indicators"
         },
         {
           "format": "HH:mm",
