@@ -1098,7 +1098,7 @@ function sessionRecordFromPluginSettings(source) {
 function searchShortcutAction(searchFocused, scopeAvailable, searchInContext) {
   if (searchFocused === true)
     return scopeAvailable === true ? "toggle-scope" : "focus"
-  if (scopeAvailable === true && searchInContext !== true) return "enter-context"
+  if (scopeAvailable === true && searchInContext === true) return "enter-global"
   return "focus"
 }
 

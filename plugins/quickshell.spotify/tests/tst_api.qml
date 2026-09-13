@@ -1512,9 +1512,9 @@ TestCase {
     compare(Api.shortcutModifierFlagsAfterEvent(3, true, 0, 0), 3)
   }
 
-  function test_searchShortcutAction_focusesThenTogglesScope() {
-    compare(Api.searchShortcutAction(false, true, true), "focus")
-    compare(Api.searchShortcutAction(false, true, false), "enter-context")
+  function test_searchShortcutAction_startsGlobalThenTogglesScope() {
+    compare(Api.searchShortcutAction(false, true, true), "enter-global")
+    compare(Api.searchShortcutAction(false, true, false), "focus")
     compare(Api.searchShortcutAction(true, true, true), "toggle-scope")
     compare(Api.searchShortcutAction(true, true, false), "toggle-scope")
     compare(Api.searchShortcutAction(false, false, true), "focus")

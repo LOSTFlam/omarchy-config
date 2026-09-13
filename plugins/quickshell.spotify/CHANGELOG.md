@@ -2,6 +2,8 @@
 
 ## 1.0.4 (unreleased)
 
+- Start `Ctrl+F` and `/` searches across Spotify; press again to search the
+  current area.
 - Cancel obsolete search pages, reuse pending searches and cached categories,
   and show queued, authorization, fetching, and cooldown progress.
 - Bound stalled API and token requests. Keep a private-query-free diagnostic

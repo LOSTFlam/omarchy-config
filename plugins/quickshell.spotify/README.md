@@ -45,8 +45,8 @@ too.
 
 | Shortcut | What it does |
 | --- | --- |
-| `Ctrl+F` or `/` | Search |
-| `Ctrl+F` or `/` again | Toggle this area / all of Spotify |
+| `Ctrl+F` or `/` | Search all of Spotify |
+| `Ctrl+F` or `/` again | Toggle current area / all of Spotify |
 | `Tab` / `F6` | Move between sidebar, search, the song list, and the player |
 | `Arrow keys` | Move to a control; Enter activates |
 | `C` | Row actions; arrows or Enter choose |
