@@ -31,11 +31,11 @@ def command(args):
     return result.stdout.strip()
 
 
-def block(plugin, combo, replace=False):
+def block(plugin, combo, replace=False, action="toggle"):
     return (f"\n-- omaplug-shortcut-start: {plugin}\n"
             + ("hl.unbind(" + json.dumps(combo) + ")\n" if replace else "")
             + "o.bind(" + ", ".join(json.dumps(s) for s in
-              (combo, "Omaplug: " + plugin, "omarchy-shell shell summon " + plugin)) + ")\n"
+              (combo, "Omaplug: " + plugin, "omarchy-shell shell " + action + " " + plugin)) + ")\n"
             + f"-- omaplug-shortcut-end: {plugin}\n")
 
 
@@ -54,7 +54,9 @@ def saved(raw, plugin):
     # the exact owned block without applying the current capture allowlist.
     if (not match or not re.fullmatch(
             r"(?:SUPER|CTRL|ALT|SHIFT)(?: \+ (?:SUPER|CTRL|ALT|SHIFT))* \+ (?:[A-Za-z0-9_]+|code:[0-9]+)", match[1])
-            or matches[0] not in (block(plugin, match[1]), block(plugin, match[1], True))):
+            or matches[0] not in (block(plugin, match[1]), block(plugin, match[1], True),
+                                  block(plugin, match[1], False, "summon"),
+                                  block(plugin, match[1], True, "summon"))):
         raise ValueError("The saved shortcut was edited manually. Please review bindings.lua.")
     return match[1], pattern.sub("", raw)
 

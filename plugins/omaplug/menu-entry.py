@@ -13,7 +13,7 @@ ENTRY = {
     "icon": "󱓖", "label": "Omaplug",
     "description": "Manage Omarchy plugins with Omaplug",
     "aliases": ["omaplug", "plugins"],
-    "action": "omarchy-shell shell summon omaplug",
+    "action": "omarchy-shell shell toggle omaplug",
 }
 ENTRY_KEY = "apps.omaplug"
 LEGACY_KEY = "omaplug"

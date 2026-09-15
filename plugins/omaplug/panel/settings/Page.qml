@@ -12,6 +12,7 @@ Rectangle {
   required property real topInset
   required property color foreground
   required property string fontFamily
+  required property string pluginVersion
   required property color panelBackground
   required property bool menuEnabled
   required property bool menuBusy
@@ -26,6 +27,7 @@ Rectangle {
   signal autoCheckEnabledRequested(bool value)
   signal autoCheckIntervalRequested(int hours)
   signal bulkUpdateScopeRequested(string value)
+  signal openUrlRequested(string url)
 
   visible: open
   color: panelBackground
@@ -137,5 +139,16 @@ Rectangle {
       font.pixelSize: Style.font.caption
     }
     Item { Layout.fillHeight: true }
+    Text {
+      Layout.fillWidth: true
+      textFormat: Text.RichText
+      text: "Omaplug v" + page.pluginVersion + " · <a href=\"https://github.com/fross100/omaplug/releases/tag/v" + page.pluginVersion + "\">Release notes</a>"
+      color: page.foreground
+      linkColor: Color.accent
+      font.family: page.fontFamily
+      font.pixelSize: Style.font.caption
+      horizontalAlignment: Text.AlignHCenter
+      onLinkActivated: function(link) { page.openUrlRequested(link) }
+    }
   }
 }

@@ -32,6 +32,13 @@ Panel {
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
   // Overlays cover the popup's own card, so they match the popup background.
   readonly property color panelBackground: Color.popups.background
+  readonly property string pluginVersion: {
+    for (var i = 0; i < root.pluginRows.length; i++) {
+      if (String(root.pluginRows[i].id || "") === root.moduleName)
+        return String(root.pluginRows[i].version || "unknown")
+    }
+    return "unknown"
+  }
 
   // ------------------------------------------------------------------ plugins
 
@@ -2236,6 +2243,7 @@ Panel {
       rows: root.updateCheckRows
       updateStates: root.updateStates
       marketplaceMap: root.marketplaceMap
+      localCommits: root.pluginCommits
       marketplaceFetching: root.marketplaceFetching
       marketplaceFetchFailed: root.marketplaceFetchFailed
       checking: root.checkingUpdates
@@ -2263,6 +2271,7 @@ Panel {
       topInset: appHeader.height + Style.space(16)
       foreground: root.contentForeground
       fontFamily: root.contentFontFamily
+      pluginVersion: root.pluginVersion
       panelBackground: root.panelBackground
       menuEnabled: root.menuEntryEnabled
       menuBusy: menuEntryProcess.running
@@ -2279,6 +2288,7 @@ Panel {
       onMenuEnabledRequested: function(value) { root.changeMenuEntry(value ? "enable" : "disable") }
       onAutoCheckEnabledRequested: function(value) { root.setAutoCheckEnabled(value) }
       onAutoCheckIntervalRequested: function(hours) { root.setAutoCheckIntervalHours(hours) }
+      onOpenUrlRequested: function(url) { root.openExternal(url) }
     }
 
     Arrange.Page {

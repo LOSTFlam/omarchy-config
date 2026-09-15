@@ -37,9 +37,13 @@ Item {
   signal menuRequested(string pluginId, var sourceItem, real x, real y)
 
   readonly property bool listed: marketplaceEntry !== null
-  readonly property bool verified: listed && marketplaceEntry.verified === true
-  readonly property bool updateUnverified: listed && !verified
-    && marketplaceEntry.snapshotStatus === "update-unverified"
+  readonly property string snapshotCommit: listed ? String(marketplaceEntry.snapshotCommit || "") : ""
+  readonly property bool commitKnown: snapshotCommit !== "" && localCommit !== ""
+  readonly property bool commitMatches: commitKnown && snapshotCommit === localCommit
+  readonly property bool verified: listed && marketplaceEntry.verified === true && commitMatches
+  readonly property bool updateUnverified: listed && (
+    (!verified && marketplaceEntry.snapshotStatus === "update-unverified")
+    || (marketplaceEntry.verified === true && commitKnown && !commitMatches))
   readonly property string authorUrl: modelData.firstParty ? "" : Presentation.authorUrl(repoUrl)
   readonly property string kindLabel: Presentation.kindLabel(modelData.kinds, knownKinds)
 

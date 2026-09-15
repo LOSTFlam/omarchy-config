@@ -20,6 +20,7 @@ Rectangle {
   required property var rows
   required property var updateStates
   required property var marketplaceMap
+  required property var localCommits
   required property bool marketplaceFetching
   required property bool marketplaceFetchFailed
   required property bool checking
@@ -73,7 +74,10 @@ Rectangle {
   function verificationText(id, sourceKey) {
     var entry = marketplaceMap[String(id)]
     if (entry) {
-      if (entry.verified === true) return "Verified"
+      var local = String((localCommits || {})[String(sourceKey)] || "")
+      var snapshot = String(entry.snapshotCommit || "")
+      if (entry.verified === true && snapshot !== "" && local !== "" && snapshot === local) return "Verified"
+      if (entry.verified === true && snapshot !== "" && local !== "" && snapshot !== local) return "Update Unverified"
       if (entry.snapshotStatus === "update-unverified") return "Update Unverified"
       return "Unverified"
     }
@@ -84,8 +88,9 @@ Rectangle {
 
   function verificationColor(id, sourceKey) {
     var entry = marketplaceMap[String(id)]
-    if (entry && entry.verified === true) return Color.accent
-    if (entry && entry.snapshotStatus === "update-unverified")
+    var status = verificationText(id, sourceKey)
+    if (status === "Verified") return Color.accent
+    if (status === "Update Unverified")
       return Qt.hsla(0.12, 0.75, 0.55, 1)
     return Qt.darker(foreground, 1.6)
   }
@@ -264,9 +269,7 @@ Rectangle {
                     }
 
                     Rectangle {
-                      readonly property bool updateUnverified: !!page.marketplaceMap[String(updateRow.modelData.id)]
-                        && page.marketplaceMap[String(updateRow.modelData.id)].verified !== true
-                        && page.marketplaceMap[String(updateRow.modelData.id)].snapshotStatus === "update-unverified"
+                      readonly property bool updateUnverified: page.verificationText(updateRow.modelData.id, updateRow.modelData.sourceKey) === "Update Unverified"
                       implicitWidth: verificationLabel.implicitWidth + Style.space(10)
                       implicitHeight: Style.space(16)
                       radius: height / 2

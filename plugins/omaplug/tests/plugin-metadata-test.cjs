@@ -65,10 +65,11 @@ try {
   vm.runInContext(page.slice(start, page.indexOf('\n  }', start) + 4), context);
   context.applyMarketplaceCatalog(JSON.stringify({ plugins: [{
     id: 'listed', verificationStatus: 'unverified',
-    verificationSnapshotStatus: 'verified', verificationCoverage: 'update-unverified'
+    verificationSnapshotStatus: 'verified', verificationCoverage: 'update-unverified', verificationCommit: 'abc'
   }] }));
   assert.equal(context.marketplaceMap.listed.snapshotStatus, 'update-unverified');
   context.updateStates = { folder: 'UPDATE' };
+  context.localCommits = { folder: 'abc' };
   context.marketplaceFetching = false;
   context.marketplaceFetchFailed = false;
   assert.equal(context.verificationText('listed', 'folder'), 'Update Unverified');
@@ -77,6 +78,8 @@ try {
   assert.equal(context.verificationText('listed', 'folder'), 'Update Unverified');
   context.marketplaceMap.listed.verified = true;
   assert.equal(context.verificationText('listed', 'folder'), 'Verified');
+  context.localCommits.folder = 'different';
+  assert.equal(context.verificationText('listed', 'folder'), 'Update Unverified');
   context.marketplaceMap.listed.verified = false;
   context.marketplaceMap.listed.snapshotStatus = '';
   assert.equal(context.verificationText('listed', 'folder'), 'Unverified');
