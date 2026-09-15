@@ -68,3 +68,23 @@ function iconColor(name) {
   ]
   return palette[Math.abs(hash) % palette.length]
 }
+
+function bulkUpdateKeys(rows, states, marketplace, scope) {
+  var sources = Object.create(null)
+  var keys = []
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i]
+    var key = String(row.sourceKey || "")
+    if (!key || states[key] !== "UPDATE") continue
+    var entry = marketplace[String(row.id)]
+    var allowed = scope === "all" || !!(entry && (entry.verified === true
+      || (scope === "pending" && entry.snapshotStatus === "update-unverified")))
+    if (sources[key] === undefined) {
+      keys.push(key)
+      sources[key] = true
+    }
+    // A repository updates as a unit: every plugin it contains must qualify.
+    sources[key] = sources[key] && allowed
+  }
+  return keys.filter(function(key) { return sources[key] })
+}

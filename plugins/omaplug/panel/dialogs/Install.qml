@@ -80,7 +80,8 @@ Rectangle {
       TextField {
         id: urlField
 
-        placeholderText: "https://github.com/acme/omarchy-weather.git"
+        placeholderText: "Paste a GitHub plugin link"
+        placeholderTextColor: Util.alpha(dialog.foreground, 0.45)
         foreground: dialog.foreground
         accent: Color.accent
         font.family: dialog.fontFamily
@@ -110,6 +111,8 @@ Rectangle {
         Item { Layout.fillWidth: true }
 
         Button {
+          bordered: true
+          borderSpec: Border.controlSpec("normal", foreground, accent)
           text: dialog.result !== "" ? "Close" : "Cancel"
           enabled: !dialog.running
           foreground: dialog.foreground
@@ -122,7 +125,9 @@ Rectangle {
         }
 
         Button {
-          text: dialog.running ? "Installing…" : "Install"
+          bordered: true
+          borderSpec: Border.controlSpec("normal", foreground, accent)
+          text: dialog.running ? "Installing…" : "Review"
           enabled: !dialog.running
           foreground: dialog.foreground
           accent: Color.accent

@@ -6,6 +6,7 @@ import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
 import "../Presentation.js" as Presentation
+import "../plugin" as Plugin
 
 Rectangle {
   id: page
@@ -25,22 +26,19 @@ Rectangle {
   required property bool updateRunning
   required property bool updatingAll
   required property int pendingCount
+  required property int bulkCount
+  required property string bulkLabel
+  required property bool bulkReady
   required property string summary
 
   required property var iconFor
   required property var whatsNewUrlFor
-
-  required property bool autoCheckEnabled
-  required property real autoCheckIntervalHours
-  readonly property var autoCheckIntervalChoices: [1, 3, 6, 12, 24]
 
   signal closeRequested
   signal tabRequested(int direction)
   signal openUrlRequested(string url)
   signal updatePluginRequested(string sourceKey)
   signal updateAllRequested
-  signal autoCheckEnabledRequested(bool value)
-  signal autoCheckIntervalRequested(int hours)
 
   visible: open
   color: panelBackground
@@ -146,48 +144,6 @@ Rectangle {
             }
           }
 
-          Toggle {
-            Layout.fillWidth: true
-            label: "Auto-check for updates"
-            description: page.autoCheckEnabled
-              ? "Checks in the background on shell start and every " + page.autoCheckIntervalHours + "h"
-              : "Only checks when you open this page or click Update"
-            checked: page.autoCheckEnabled
-            foreground: page.foreground
-            accent: Color.accent
-            fontFamily: page.fontFamily
-            onClicked: page.autoCheckEnabledRequested(!page.autoCheckEnabled)
-          }
-
-          RowLayout {
-            Layout.fillWidth: true
-            visible: page.autoCheckEnabled
-            spacing: Style.space(6)
-
-            Label {
-              text: "Check every"
-              color: Qt.darker(page.foreground, 1.5)
-              font.family: page.fontFamily
-              font.pixelSize: Style.font.bodySmall
-            }
-
-            ButtonGroup {
-              options: page.autoCheckIntervalChoices.map(function(h) {
-                return { value: String(h), label: h + "h" }
-              })
-              value: String(page.autoCheckIntervalHours)
-              foreground: page.foreground
-              accent: Color.accent
-              fontFamily: page.fontFamily
-              fontSize: Style.font.caption
-              onChanged: function(v) { page.autoCheckIntervalRequested(Number(v)) }
-            }
-
-            Item {
-              Layout.fillWidth: true
-            }
-          }
-
           Rectangle {
             id: checkProgress
             visible: page.checking
@@ -261,23 +217,18 @@ Rectangle {
                   clip: true
                   color: Presentation.iconColor(updateRow.modelData.name)
 
-                  Text {
-                    anchors.centerIn: parent
-                    width: parent.width - 4
-                    horizontalAlignment: Text.AlignHCenter
-                    elide: Text.ElideRight
-                    maximumLineCount: 1
+                  Plugin.IconGlyph {
                     text: page.iconFor(updateRow.modelData.id) || updateRow.modelData.name.trim().charAt(0).toUpperCase()
-                    textFormat: Text.PlainText
-                    color: "white"
                     font.family: page.fontFamily
                     font.pixelSize: Style.font.bodySmall
-                    font.bold: true
                   }
                 }
 
                 ColumnLayout {
                   Layout.fillWidth: true
+                  Layout.preferredWidth: 0
+                  Layout.minimumWidth: 0
+                  Layout.maximumHeight: implicitHeight
                   Layout.alignment: Qt.AlignVCenter
                   spacing: Style.space(2)
 
@@ -294,7 +245,6 @@ Rectangle {
 
                   RowLayout {
                     Layout.fillWidth: true
-                    Layout.topMargin: Style.space(8)
                     spacing: Style.space(5)
 
                     Label {
@@ -478,8 +428,11 @@ Rectangle {
             }
 
             Button {
-              text: page.updatingAll ? "Updating all…" : "Update all"
-              enabled: page.pendingCount > 0 && !page.checking && !page.updateRunning
+              text: page.updatingAll ? "Updating…" : page.bulkLabel
+              tooltipText: !page.bulkReady ? "Checking verification…"
+                : page.bulkCount === 0 ? "No updates match your selected scope"
+                : page.bulkCount + " update(s) match your selected scope"
+              enabled: page.bulkCount > 0 && page.bulkReady && !page.checking && !page.updateRunning
               visible: page.pendingCount > 0 && !page.checking
               foreground: page.foreground
               accent: Color.accent

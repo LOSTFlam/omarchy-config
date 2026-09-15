@@ -12,6 +12,7 @@ import "panel/dialogs" as Dialogs
 import "panel/layout" as Arrange
 import "panel/plugin" as Plugin
 import "panel/updates" as Updates
+import "panel/settings" as Settings
 
 // Plugin manager popup: lists every discovered plugin (first-party omarchy +
 // third-party) with an enable/disable switch. The list is read from the
@@ -186,6 +187,15 @@ Panel {
   }
   // AUTOCHECK-SETTINGS-END
 
+  readonly property string bulkUpdateScope: {
+    var scope = root.setting("bulkUpdateScope", "all")
+    return ["verified", "pending", "all"].indexOf(scope) >= 0 ? scope : "all"
+  }
+  readonly property var bulkUpdateKeys: Presentation.bulkUpdateKeys(
+    root.updateCheckRows, root.updateStates, root.marketplaceMap, root.bulkUpdateScope)
+  readonly property string bulkUpdateLabel: root.bulkUpdateScope === "verified"
+    ? "Update verified" : root.bulkUpdateScope === "pending" ? "Update verified + pending" : "Update all"
+
   function persistAutoCheckSetting(values) {
     if (autoCheckSettingsProcess.running) return
     var key = Object.keys(values)[0]
@@ -199,7 +209,7 @@ Panel {
     property var pendingValues: ({})
     onExited: function(exitCode) {
       if (exitCode === 0) root.applyAutoCheckSettings(pendingValues)
-      else root.updateSummary = "Could not save automatic update settings."
+      else root.updateSummary = "Could not save update settings."
     }
   }
 
@@ -253,6 +263,36 @@ Panel {
   property int updateDeadProbeCount: 0
   // Full-page "check for updates" view (replaces the header inline progress).
   property bool updatesPageOpen: false
+  property bool settingsPageOpen: false
+  property bool menuEntryEnabled: false
+  property string menuEntryStatus: ""
+
+  function changeMenuEntry(action) {
+    if (menuEntryProcess.running) return
+    root.menuEntryStatus = ""
+    menuEntryProcess.command = ["python3",
+      decodeURIComponent(String(Qt.resolvedUrl("menu-entry.py")).replace(/^file:\/\//, "")), action]
+    menuEntryProcess.running = true
+  }
+
+  property Process menuEntryProcess: Process {
+    stdout: StdioCollector { id: menuEntryOutput; waitForEnd: true }
+    stderr: StdioCollector { id: menuEntryError; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        root.menuEntryStatus = "Could not change menu setting. " + menuEntryError.text.trim()
+        return
+      }
+      try {
+        root.menuEntryEnabled = JSON.parse(menuEntryOutput.text).enabled === true
+      } catch (error) {
+        root.menuEntryStatus = "Could not read the menu setting."
+      }
+    }
+  }
+  onSettingsPageOpenChanged: {
+    if (root.settingsPageOpen) root.changeMenuEntry("status")
+  }
   // Streaming parse state for per-plugin progress.
   property string updateCheckLineBuf: ""
   property int updateCheckProcessed: 0
@@ -292,6 +332,50 @@ Panel {
   readonly property var barLayoutSections: root.layoutSections()
   // Right-click context menu on a main-page row.
   property bool rowMenuOpen: false
+  property bool shortcutDialogOpen: false
+  property string shortcutPluginId: ""
+  property string shortcutPluginName: ""
+  property string shortcutSaved: ""
+  property string shortcutResult: ""
+  property string shortcutPending: ""
+
+  function openShortcut(id, name) {
+    if (shortcutProcess.running) return
+    root.shortcutPluginId = id
+    root.shortcutPluginName = name
+    root.shortcutSaved = ""
+    root.shortcutDialogOpen = true
+    root.runShortcutAction("status", "")
+  }
+
+  function runShortcutAction(action, combination) {
+    if (shortcutProcess.running) return
+    root.shortcutResult = ""
+    root.shortcutPending = ""
+    shortcutProcess.action = action
+    shortcutProcess.command = ["python3",
+      decodeURIComponent(String(Qt.resolvedUrl("shortcut.py")).replace(/^file:\/\//, "")),
+      action, root.shortcutPluginId, combination]
+    shortcutProcess.running = true
+  }
+
+  property Process shortcutProcess: Process {
+    property string action: ""
+    stdout: StdioCollector { id: shortcutOutput; waitForEnd: true }
+    onExited: function(exitCode) {
+      try {
+        var data = JSON.parse(shortcutOutput.text)
+        root.shortcutResult = data.error || data.message || "Shortcut operation failed."
+        root.shortcutPending = exitCode === 0 ? (data.pendingShortcut || "") : ""
+        if (exitCode === 0) {
+          if (action === "status" || action === "save" || action === "replace" || action === "remove")
+            root.shortcutSaved = data.shortcut || ""
+        }
+      } catch (error) {
+        root.shortcutResult = "Could not manage the shortcut. Check that Hyprland is running."
+      }
+    }
+  }
   property string rowMenuId: ""
   property var rowMenuPos: ({ x: 0, y: 0 })
   onInstallDialogOpenChanged: {
@@ -784,12 +868,8 @@ Panel {
 
   function updateAll() {
     if (root.checkingUpdates || root.updateDetachedRunning) return
-    var ids = []
-    for (var i = 0; i < root.updateCheckRows.length; i++) {
-      var key = root.updateCheckRows[i].sourceKey
-      if (root.updateStates[key] === "UPDATE") ids.push(key)
-    }
-    root.startDetachedUpdates(ids)
+    if (root.bulkUpdateScope !== "all" && root.marketplaceFetching) return
+    root.startDetachedUpdates(root.bulkUpdateKeys.slice())
   }
 
   // Launch only the repositories proven updateable by the preceding check.
@@ -965,6 +1045,11 @@ Panel {
           version: entry.version !== undefined ? String(entry.version) : "",
           author: typeof entry.author === "string" ? entry.author : "",
           description: typeof entry.description === "string" ? entry.description : "",
+          icon: typeof entry.icon === "string" ? entry.icon : "",
+          repositoryUrl: typeof entry.repositoryUrl === "string" ? entry.repositoryUrl
+            : typeof entry.sourceUrl === "string" ? entry.sourceUrl
+            : typeof entry.source === "string" ? entry.source
+            : typeof entry.installCommand === "string" ? ((entry.installCommand.match(/https:\/\/github\.com\/[^\s`]+/) || [""])[0]) : "",
           verified: entry.verificationStatus === "verified",
           snapshotCommit: typeof entry.verificationCommit === "string" ? entry.verificationCommit : "",
           snapshotStatus: String(entry.verificationCoverage || entry.verificationSnapshotStatus || entry.verificationStatus || ""),
@@ -1219,6 +1304,41 @@ Panel {
     root.installResult = ""
     root.installPendingUrl = url
     root.installConfirmOpen = true
+  }
+
+  function installReviewEntry() {
+    var url = String(root.installPendingUrl).replace(/\.git$/, "").replace(/\/$/, "")
+    var repo = url.substring(url.lastIndexOf("/") + 1).toLowerCase()
+    var parts = url.split("/")
+    var owner = parts.length > 1 ? parts[parts.length - 2].toLowerCase().replace(/[^a-z0-9]/g, "") : ""
+    var repoSlug = repo.replace(/^omarchy[-_]/, "").replace(/[^a-z0-9]/g, "")
+    for (var id in root.marketplaceMap) {
+      var entry = root.marketplaceMap[id]
+      var listedRepo = String(entry.repositoryUrl || "").replace(/\.git$/, "").replace(/\/$/, "").toLowerCase()
+      var listedId = String(id).toLowerCase()
+      var idSlug = listedId.replace(/[^a-z0-9]/g, "")
+      if (listedRepo === url.toLowerCase() || listedId === repo
+          || (repoSlug !== "" && idSlug.indexOf(repoSlug) !== -1 && (owner === "" || idSlug.indexOf(owner) !== -1)))
+        return entry
+    }
+    return null
+  }
+
+  function installReviewEntryId() {
+    var entry = root.installReviewEntry()
+    if (!entry) return ""
+    for (var id in root.marketplaceMap)
+      if (root.marketplaceMap[id] === entry) return String(id)
+    return ""
+  }
+
+  function installAlreadyInstalled() {
+    var target = String(root.installPendingUrl).replace(/\.git$/, "").replace(/\/$/, "").toLowerCase()
+    for (var key in root.pluginRepos) {
+      var repo = String(root.pluginRepos[key] || "").replace(/\.git$/, "").replace(/\/$/, "").toLowerCase()
+      if (repo !== "" && repo === target) return true
+    }
+    return false
   }
 
   function installPlugin() {
@@ -1660,7 +1780,9 @@ Panel {
   }
 
   function close() {
+    root.shortcutDialogOpen = false
     root.installDialogOpen = false
+    root.settingsPageOpen = false
     root.updatesPageOpen = false
     root.layoutPageOpen = false
     root.removeConfirmOpen = false
@@ -1859,6 +1981,22 @@ Panel {
           }
 
           Button {
+            text: root.removeSelectMode ? "Done" : "Select"
+            tooltipText: "Select plugins to remove"
+            enabled: !root.removingPlugin
+            foreground: root.contentForeground
+            accent: Color.accent
+            fontFamily: root.contentFontFamily
+            fontSize: Style.font.bodySmall
+            horizontalPadding: Style.space(10)
+            verticalPadding: Style.space(5)
+            onClicked: {
+              root.removeSelectMode = !root.removeSelectMode
+              if (!root.removeSelectMode) root.removeSelection = {}
+            }
+          }
+
+          Button {
             iconText: "\uf021"
             tooltipText: root.checkingUpdates ? "Checking for updates…" : "Check updates"
             enabled: !root.checkingUpdates && !root.updateDetachedRunning
@@ -1906,19 +2044,15 @@ Panel {
           }
 
           Button {
-            text: root.removeSelectMode ? "Done" : "Select"
-            tooltipText: "Select plugins to remove"
-            enabled: !root.removingPlugin
+            iconText: "\uf013"
+            tooltipText: "Settings"
             foreground: root.contentForeground
             accent: Color.accent
             fontFamily: root.contentFontFamily
             fontSize: Style.font.bodySmall
             horizontalPadding: Style.space(10)
             verticalPadding: Style.space(5)
-            onClicked: {
-              root.removeSelectMode = !root.removeSelectMode
-              if (!root.removeSelectMode) root.removeSelection = {}
-            }
+            onClicked: root.settingsPageOpen = true
           }
         }
 
@@ -1962,6 +2096,7 @@ Panel {
             id: searchField
             Layout.fillWidth: true
             placeholderText: "Search plugins…"
+            placeholderTextColor: Util.alpha(root.contentForeground, 0.45)
             foreground: root.contentForeground
             accent: Color.accent
             font.family: root.contentFontFamily
@@ -2107,17 +2242,41 @@ Panel {
       updateRunning: root.updateDetachedRunning
       updatingAll: root.updatingAll
       pendingCount: root.pendingUpdateCount
+      bulkCount: root.bulkUpdateKeys.length
+      bulkLabel: root.bulkUpdateLabel
+      bulkReady: root.bulkUpdateScope === "all" || !root.marketplaceFetching
       summary: root.updateSummary
       iconFor: root.iconFor
       whatsNewUrlFor: root.whatsNewUrlFor
-      autoCheckEnabled: root.autoCheckEnabled
-      autoCheckIntervalHours: root.autoCheckIntervalHours
 
       onCloseRequested: root.updatesPageOpen = false
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onOpenUrlRequested: function(url) { root.openExternal(url) }
       onUpdatePluginRequested: function(sourceKey) { root.updatePlugin(sourceKey) }
       onUpdateAllRequested: root.updateAll()
+    }
+
+    Settings.Page {
+      anchors.fill: parent
+      z: 5000
+      open: root.settingsPageOpen
+      topInset: appHeader.height + Style.space(16)
+      foreground: root.contentForeground
+      fontFamily: root.contentFontFamily
+      panelBackground: root.panelBackground
+      menuEnabled: root.menuEntryEnabled
+      menuBusy: menuEntryProcess.running
+      menuStatus: root.menuEntryStatus
+      autoCheckEnabled: root.autoCheckEnabled
+      autoCheckIntervalHours: root.autoCheckIntervalHours
+      settingsBusy: autoCheckSettingsProcess.running
+      bulkUpdateScope: root.bulkUpdateScope
+      onBulkUpdateScopeRequested: function(value) {
+        if (["verified", "pending", "all"].indexOf(value) >= 0)
+          root.persistAutoCheckSetting({ bulkUpdateScope: value })
+      }
+      onCloseRequested: root.settingsPageOpen = false
+      onMenuEnabledRequested: function(value) { root.changeMenuEntry(value ? "enable" : "disable") }
       onAutoCheckEnabledRequested: function(value) { root.setAutoCheckEnabled(value) }
       onAutoCheckIntervalRequested: function(hours) { root.setAutoCheckIntervalHours(hours) }
     }
@@ -2171,6 +2330,23 @@ Panel {
       onUpdateRequested: function(sourceKey) { root.updatePlugin(sourceKey) }
       onRemovalRequested: function(pluginId) { root.removePlugin(pluginId) }
       onMoveRequested: function(pluginId, section) { root.moveWidgetToSection(pluginId, section) }
+      onShortcutRequested: function(pluginId, name) { root.openShortcut(pluginId, name) }
+    }
+
+    Dialogs.Shortcut {
+      anchors.fill: parent
+      z: 13000
+      open: root.shortcutDialogOpen
+      running: shortcutProcess.running
+      pluginName: root.shortcutPluginName
+      savedShortcut: root.shortcutSaved
+      pendingShortcut: root.shortcutPending
+      result: root.shortcutResult
+      foreground: root.contentForeground
+      fontFamily: root.contentFontFamily
+      panelBackground: root.panelBackground
+      onCloseRequested: root.shortcutDialogOpen = false
+      onActionRequested: function(action, combination) { root.runShortcutAction(action, combination) }
     }
 
     Dialogs.Confirm {
@@ -2238,16 +2414,32 @@ Panel {
 
       open: root.installConfirmOpen
       title: "Install plugin?"
-      message: "\"" + root.installPendingUrl + "\" will be added via `omarchy plugin add` but will remain DISABLED until you enable it manually. Review the code after install, then enable from the plugin list."
+      message: "Review the source before enabling this plugin. It will be installed disabled."
       confirmText: "Install"
+      confirmAccent: Color.urgent
+      confirmForeground: Color.urgent
       maximumWidth: Style.space(380)
       titleWrapMode: Text.WordWrap
+      pluginName: root.installReviewEntry() ? (root.installReviewEntry().name || root.installPendingUrl.split("/").pop()) : root.installPendingUrl.split("/").pop()
+      pluginVersion: root.installReviewEntry() ? String(root.installReviewEntry().version || "") : ""
+      pluginDescription: root.installReviewEntry() ? String(root.installReviewEntry().description || "") : ""
+      pluginIcon: root.installReviewEntry() ? String(root.installReviewEntry().icon || "") : ""
+      marketplaceListed: root.installReviewEntry() !== null
+      marketplaceStatus: root.installReviewEntry()
+        ? (root.installReviewEntry().snapshotStatus === "update-unverified" ? "Update Unverified"
+          : root.installReviewEntry().verified ? "Verified on marketplace" : "Unverified")
+        : "Not listed on marketplace"
+      sourceUrl: root.installPendingUrl
+      marketplaceUrl: root.installReviewEntryId() !== "" ? "https://plugins.omarchy.org/plugin.html?id=" + encodeURIComponent(root.installReviewEntryId()) : ""
+      alreadyInstalled: root.installAlreadyInstalled()
       foreground: root.contentForeground
       fontFamily: root.contentFontFamily
       panelBackground: root.panelBackground
 
       onCancelRequested: root.cancelInstallConfirm()
       onConfirmRequested: root.installPlugin()
+      onSourceRequested: function(url) { Qt.openUrlExternally(url) }
+      onMarketplaceRequested: function(url) { Qt.openUrlExternally(url) }
     }
   }
 }

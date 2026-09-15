@@ -28,6 +28,7 @@ Rectangle {
   signal updateRequested(string sourceKey)
   signal removalRequested(string pluginId)
   signal moveRequested(string pluginId, string section)
+  signal shortcutRequested(string pluginId, string pluginName)
 
   visible: open
   color: "transparent"
@@ -73,6 +74,7 @@ Rectangle {
         verticalPadding: Style.space(5)
         Layout.fillWidth: true
         Layout.alignment: Qt.AlignLeft
+        leftAlign: true
         onClicked: {
           menu.enabledChangeRequested(menu.plugin.id, !menu.pluginEnabled)
           menu.closeRequested()
@@ -90,6 +92,7 @@ Rectangle {
         verticalPadding: Style.space(5)
         Layout.fillWidth: true
         Layout.alignment: Qt.AlignLeft
+        leftAlign: true
         onClicked: {
           menu.sourceRequested(menu.plugin.sourceKey)
           menu.closeRequested()
@@ -108,8 +111,26 @@ Rectangle {
         verticalPadding: Style.space(5)
         Layout.fillWidth: true
         Layout.alignment: Qt.AlignLeft
+        leftAlign: true
         onClicked: {
           menu.updateRequested(menu.plugin.sourceKey)
+          menu.closeRequested()
+        }
+      }
+
+      Button {
+        visible: menu.plugin && menu.pluginEnabled
+          && /(^|,)(bar-widget|panel|overlay|menu)(,|$)/.test(String(menu.plugin.kinds))
+        text: "Keyboard shortcut"
+        foreground: menu.foreground
+        fontFamily: menu.fontFamily
+        fontSize: Style.font.bodySmall
+        Layout.fillWidth: true
+        leftAlign: true
+        horizontalPadding: Style.space(8)
+        verticalPadding: Style.space(5)
+        onClicked: {
+          menu.shortcutRequested(menu.plugin.id, menu.plugin.name)
           menu.closeRequested()
         }
       }
@@ -137,6 +158,7 @@ Rectangle {
           verticalPadding: Style.space(5)
           Layout.fillWidth: true
           Layout.alignment: Qt.AlignLeft
+          leftAlign: true
           onClicked: {
             menu.moveRequested(menu.plugin.id, modelData)
             menu.closeRequested()
@@ -155,6 +177,7 @@ Rectangle {
         verticalPadding: Style.space(5)
         Layout.fillWidth: true
         Layout.alignment: Qt.AlignLeft
+        leftAlign: true
         onClicked: {
           var pluginId = menu.plugin.id
           menu.closeRequested()

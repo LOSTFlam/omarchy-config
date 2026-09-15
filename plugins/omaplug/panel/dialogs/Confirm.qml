@@ -24,9 +24,20 @@ Rectangle {
   property color confirmAccent: Color.accent
   property bool confirmBordered: false
   property int titleWrapMode: Text.NoWrap
+  property string pluginName: ""
+  property string pluginVersion: ""
+  property string pluginDescription: ""
+  property string pluginIcon: ""
+  property string marketplaceStatus: ""
+  property bool marketplaceListed: false
+  property string sourceUrl: ""
+  property string marketplaceUrl: ""
+  property bool alreadyInstalled: false
 
   signal cancelRequested
   signal confirmRequested
+  signal sourceRequested(string url)
+  signal marketplaceRequested(string url)
 
   visible: open
   color: Util.alpha(panelBackground, 0.7)
@@ -83,11 +94,137 @@ Rectangle {
       }
 
       RowLayout {
+        visible: dialog.pluginName !== ""
+        Layout.fillWidth: true
+        spacing: Style.space(10)
+        Rectangle {
+          Layout.preferredWidth: Style.space(36)
+          Layout.preferredHeight: Style.space(36)
+          radius: Style.cornerRadius
+          color: Util.alpha(Color.accent, 0.8)
+          Text {
+            anchors.centerIn: parent
+            text: dialog.pluginIcon || dialog.pluginName.trim().charAt(0).toUpperCase()
+            color: Color.background
+            font.family: dialog.fontFamily
+            font.pixelSize: Style.font.title
+          }
+        }
+        ColumnLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(2)
+          RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.space(6)
+            Text {
+              text: dialog.pluginName
+              color: dialog.foreground
+              font.family: dialog.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+              Layout.fillWidth: true
+              elide: Text.ElideRight
+            }
+          }
+          RowLayout {
+            spacing: Style.space(6)
+            Rectangle {
+              id: marketplaceBadge
+              visible: dialog.marketplaceStatus !== ""
+              implicitWidth: badgeContent.implicitWidth + Style.space(10)
+              implicitHeight: Style.space(16)
+              radius: height / 2
+              color: dialog.marketplaceStatus === "Verified on marketplace"
+                ? Util.alpha(Color.accent, 0.18)
+                : dialog.marketplaceStatus === "Update Unverified"
+                  ? Qt.rgba(0.85, 0.65, 0.13, 0.18)
+                  : Util.alpha(dialog.foreground, 0.08)
+              Row {
+                id: badgeContent
+                anchors.centerIn: parent
+                spacing: Style.space(3)
+                Text {
+                  visible: dialog.marketplaceStatus === "Verified on marketplace" || dialog.marketplaceStatus === "Update Unverified"
+                  text: dialog.marketplaceStatus === "Update Unverified" ? "\uf071" : "\uf058"
+                  color: dialog.marketplaceStatus === "Update Unverified" ? Qt.hsla(0.12, 0.75, 0.55, 1) : Color.accent
+                  font.family: dialog.fontFamily
+                  font.pixelSize: Style.font.caption - 1
+                }
+                Text {
+                  text: dialog.marketplaceStatus === "Verified on marketplace" ? "Verified"
+                    : dialog.marketplaceStatus === "Update Unverified" ? "Update Unverified"
+                    : dialog.marketplaceListed ? "Unverified" : "Not listed on Marketplace"
+                  color: dialog.marketplaceStatus === "Verified on marketplace" ? Color.accent
+                    : dialog.marketplaceStatus === "Update Unverified" ? Qt.hsla(0.12, 0.75, 0.55, 1)
+                    : Qt.darker(dialog.foreground, 2.0)
+                  font.family: dialog.fontFamily
+                  font.pixelSize: Style.font.caption - 1
+                }
+              }
+            }
+            Text {
+              text: dialog.pluginVersion
+              visible: text !== ""
+              color: Qt.darker(dialog.foreground, 1.6)
+              font.family: dialog.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+          }
+          Text {
+            text: dialog.pluginDescription
+            visible: text !== ""
+            color: Qt.darker(dialog.foreground, 1.6)
+            font.family: dialog.fontFamily
+            font.pixelSize: Style.font.caption
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            maximumLineCount: 3
+            elide: Text.ElideRight
+          }
+        }
+      }
+      Rectangle {
+        visible: dialog.pluginName !== "" && !dialog.marketplaceListed
+        Layout.fillWidth: true
+        height: 1
+        color: Qt.darker(dialog.foreground, 1.8)
+      }
+
+      RowLayout {
         Layout.fillWidth: true
 
         Item { Layout.fillWidth: true }
 
         Button {
+          bordered: true
+          borderSpec: Border.controlSpec("normal", foreground, accent)
+          visible: dialog.sourceUrl !== ""
+          text: "\uf46c Source"
+          foreground: dialog.foreground
+          accent: Color.accent
+          fontFamily: dialog.fontFamily
+          fontSize: Style.font.bodySmall
+          horizontalPadding: Style.space(10)
+          verticalPadding: Style.space(6)
+          onClicked: dialog.sourceRequested(dialog.sourceUrl)
+        }
+
+        Button {
+          bordered: true
+          borderSpec: Border.controlSpec("normal", foreground, accent)
+          visible: dialog.marketplaceUrl !== ""
+          text: "Marketplace"
+          foreground: dialog.foreground
+          accent: Color.accent
+          fontFamily: dialog.fontFamily
+          fontSize: Style.font.bodySmall
+          horizontalPadding: Style.space(10)
+          verticalPadding: Style.space(6)
+          onClicked: dialog.marketplaceRequested(dialog.marketplaceUrl)
+        }
+        Button {
+          bordered: true
+          borderSpec: Border.controlSpec("normal", foreground, accent)
           text: "Cancel"
           foreground: dialog.foreground
           accent: Color.accent
@@ -99,8 +236,11 @@ Rectangle {
         }
 
         Button {
-          text: dialog.confirmText
-          bordered: dialog.confirmBordered
+          bordered: true
+          borderSpec: Border.controlSpec("normal", foreground, accent)
+          text: dialog.alreadyInstalled ? "Installed" : dialog.confirmText
+          enabled: !dialog.alreadyInstalled
+          opacity: dialog.alreadyInstalled ? 0.5 : 1
           foreground: dialog.confirmForeground
           accent: dialog.confirmAccent
           fontFamily: dialog.fontFamily

@@ -84,6 +84,7 @@ Item {
       Item {
         Layout.preferredWidth: Style.space(28)
         Layout.preferredHeight: Style.space(28)
+        Layout.alignment: Qt.AlignVCenter
 
         Rectangle {
           x: 0
@@ -94,18 +95,10 @@ Item {
           clip: true
           color: Presentation.iconColor(pluginRow.modelData.name)
 
-          Text {
-            anchors.centerIn: parent
-            width: parent.width - 4
-            horizontalAlignment: Text.AlignHCenter
-            elide: Text.ElideRight
-            maximumLineCount: 1
+          IconGlyph {
             text: pluginRow.icon || pluginRow.modelData.name.trim().charAt(0).toUpperCase()
-            textFormat: Text.PlainText
-            color: "white"
             font.family: pluginRow.fontFamily
             font.pixelSize: Style.font.bodySmall
-            font.bold: true
           }
         }
 
