@@ -9,6 +9,19 @@ Each release is also published at
 
 ## [Unreleased]
 
+### Fixed
+
+- **Antigravity CLI session fallback.** When `agy` requires an undiscoverable
+  CSRF token, ai-usagebar now reads the CLI's saved Google session from
+  `~/.gemini/antigravity-cli/antigravity-oauth-token` when the OS keyring is
+  unavailable.
+
+- **Antigravity's fallback source no longer claims the app is closed.** Since
+  v1.17.0 the Cloud Code fallback also answers when `agy` is running but will
+  not publish its CSRF token, yet the TUI labelled those figures
+  `Google API (app closed)` — false while the app is open. The source row now
+  reads `Google API`, which is true for both reasons the fallback fires.
+
 ## [1.17.0] — 2026-09-12
 
 ### Added

@@ -849,13 +849,13 @@ fn antigravity_sections(
             push_window(&mut v, GROUP_THIRD_PARTY, w, now, 5, false);
         }
     }
-    // Figures read off the Cloud Code API while no product runs can lag what
-    // a running product would show; say where they came from.
+    // Figures read from the Cloud Code API fallback can lag what the local
+    // product would show; say where they came from.
     if s.source == crate::usage::AntigravitySource::Remote {
         v.push(Section::Spacer);
         v.push(Section::Text {
             label: "Source".into(),
-            value: "Google API (app closed)".into(),
+            value: "Google API".into(),
         });
     }
     v
@@ -2668,7 +2668,7 @@ mod tests {
         assert!(matches!(
             &remote[n - 1],
             Section::Text { label, value }
-                if label == "Source" && value == "Google API (app closed)"
+                if label == "Source" && value == "Google API"
         ));
 
         let local = sections_for(&ready(antigravity_snap(AntigravitySource::Local)), now(), 5);

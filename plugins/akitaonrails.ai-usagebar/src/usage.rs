@@ -392,7 +392,8 @@ pub struct AntigravitySnapshot {
     /// cache written for one Google account is not served for another.
     pub account: String,
     /// Where the figures came from: a running local product, or the Cloud
-    /// Code API reached with the saved Google session while nothing runs.
+    /// Code API reached with the saved Google session when no local server
+    /// can answer — none is running, or `agy` withholds its CSRF token.
     pub source: AntigravitySource,
     /// Gemini group, 5-hour window.
     pub session: Option<UsageWindow>,

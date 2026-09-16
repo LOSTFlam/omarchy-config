@@ -237,15 +237,17 @@ vendor's response shape drifts:
   hard failure.
   Discovered ports are grouped per pid and emitted rank by rank (`probe_order`),
   so with two products up every RPC listener is probed before any TLS one.
-  With no local server at all (and only then — a server that is up but
-  signed out keeps its own diagnosis), `fetch.rs` falls back to the Google
-  OAuth session Antigravity saved in the OS keyring (`credential.rs`:
+  With no local server at all, or when `agy` reports its undiscoverable CSRF
+  token (a genuinely signed-out server keeps its own diagnosis), `fetch.rs`
+  falls back to the Google
+  OAuth session Antigravity saved in the OS keyring or the CLI file
+  `~/.gemini/antigravity-cli/antigravity-oauth-token` (`credential.rs`:
   Credential Manager on Windows, `security` on macOS, `secret-tool` on
   Linux; read-only) and asks the Cloud Code API (`cloud.rs`) for the same
   quota summary. A refreshed token goes to the vendor cache's
   `oauth.json`, keyed by a fingerprint of the refresh token, never back to
   the keyring. The OAuth client that refresh needs is config-only.
-  Tests must never probe `/proc`, `lsof`, the keyring, Google or the wall
+  Tests must never probe `/proc`, `lsof`, the keyring, the CLI token file, Google or the wall
   clock — use `candidate_bases_with`, `probe_order`,
   `matching_windows_ports`, `parse_lsof_pcn`, `parse_cache_at`, and
   `fetch_snapshot_at` with a `RemoteOverride` (`SavedCredential::Blob` /

@@ -138,6 +138,21 @@ enabled = true             # disabled by default; enable once you've run `grok l
 # auth_path = "/home/you/.grok/auth.json"
 # config_path = "/home/you/.grok/config.toml"
 
+[antigravity]
+enabled = false            # opt in after signing in with Antigravity
+# Antigravity is read locally first: the running desktop product or `agy`
+# language server supplies quota over its loopback RPC. When that source is
+# unavailable — including `agy` sessions whose CSRF token is not published —
+# ai-usagebar uses the saved Google session and the Cloud Code API instead.
+# The session is read-only from either the OS keyring or the CLI file:
+# ~/.gemini/antigravity-cli/antigravity-oauth-token
+# oauth_client_id = "<public installed-app client id>"
+# oauth_client_secret = "<public installed-app client secret>"
+# The OAuth client is needed only to refresh an expired saved session.
+#
+# Set ANTIGRAVITY_LS_ADDRESS=host:port only when automatic loopback discovery
+# fails; discovered ports are still tried after this address.
+
 [cursor]
 enabled = true             # disabled by default; enable once you've signed in to Cursor
 # No API key: reads the session token the Cursor IDE already wrote to its own

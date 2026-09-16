@@ -130,7 +130,7 @@ numbers and shows an orange ⚠ in its header plus a one-line note at the
 bottom of the card; hovering either shows the raw diagnosis. Antigravity
 only reports "isn't running" when there is no local server *and* no saved
 Google session to fall back on: with the app closed but signed in, the card
-shows the quota from Google's API with a "Source · Google API (app closed)"
+shows the quota from Google's API with a "Source · Google API"
 row. A
 provider with nothing to show gets a red ⚠ and a card with the verdict, a
 hint, and — when the fix is something the tray can do — a button (Open TUI

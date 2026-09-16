@@ -260,7 +260,7 @@ come from environment variables or `config.toml`.
 | Grok (xAI) | Management key | Opt in with `XAI_MANAGEMENT_KEY` or config. An inference key does not work. |
 | SuperGrok | Existing `grok login` (its `auth.json` key, or its ACP extension) | Opt in, install Grok Build, and run `grok login`. This reports subscription usage, not the Management API balance. |
 | MiniMax | Token Plan subscription key | Opt in with `MINIMAX_API_KEY` or config. Choose the matching global or China region; pay-as-you-go keys do not work. |
-| Google Antigravity | Local Antigravity server, or the saved Google session | Opt in. The desktop products provide quota through their local server. The `agy` CLI currently requires a CSRF token it does not publish, so ai-usagebar uses the Google OAuth session Antigravity saved in the OS keyring and asks the Cloud Code API instead. The same fallback applies when no product is running. |
+| Google Antigravity | Local Antigravity server, or the saved Google session | Opt in. The desktop products provide quota through their local server. The `agy` CLI currently requires a CSRF token it does not publish, so ai-usagebar uses the Google OAuth session saved in the OS keyring or `~/.gemini/antigravity-cli/antigravity-oauth-token` and asks the Cloud Code API instead. The TUI labels this fallback `Google API`. The same fallback applies when no product is running. |
 | Cursor | Existing Cursor IDE or `cursor-agent` login | Opt in and sign in once. `cursor-agent` is the headless fallback. |
 | Kiro CLI | Existing kiro-cli login | Opt in and run `kiro-cli login` once. ai-usagebar refreshes the session when needed. |
 | Nous Research | OAuth device flow | Enable `[nous]`, click **Log in with Nous Research** in the Omarchy settings panel, or run `ai-usagebar auth nous login`. Credentials are kept in ai-usagebar's separate platform config directory (`~/.config/ai-usagebar/credentials.json` on Linux). |
@@ -433,9 +433,10 @@ For each API-key vendor, ai-usagebar checks in this order:
   caches, refreshes, or writes that key back. Auth/config files are also
   hashed as opaque bytes to separate caches between logins.
 - Cursor's `state.vscdb` and `cursor-agent` fallback `auth.json` are read-only.
-- Antigravity's keyring entry is read-only. A refreshed access token goes to
-  `antigravity/oauth.json` in the cache dir (mode `600` on Unix), keyed by a
-  fingerprint of the refresh token so a different login never reuses it.
+- Antigravity's keyring entry and CLI OAuth file are read-only. A refreshed
+  access token goes to `antigravity/oauth.json` in the cache dir (mode `600` on
+  Unix), keyed by a fingerprint of the refresh token so a different login
+  never reuses it.
   Renewing the session needs Antigravity's own OAuth client id and secret in
   `[antigravity] oauth_client_id` / `oauth_client_secret`; they are public
   installed-app credentials, but nothing secret-shaped ships in this
@@ -679,6 +680,10 @@ repositories and are maintained by their authors, not here.
 - [AI Usage for Noctalia](https://github.com/noctalia-dev/community-plugins/tree/main/ai-usagebar)
   — bar widget and panel for the Noctalia v5 shell, installable from its
   plugin browser as `felipeartur/ai-usagebar`.
+
+- [usage for Codex CLI](https://github.com/wellorbetter/ai-usagebar-codex-skill)
+  — Codex skill for checking remaining quotas, balances, and reset times with
+  `$usage`, using the usage and vendor JSON reports.
 
 ## Waybar config
 
