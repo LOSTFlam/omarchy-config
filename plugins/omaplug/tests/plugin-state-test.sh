@@ -108,5 +108,7 @@ assert_eq ERROR "$(state_for fetch-error)" fetch-error
 
 current_url=$(awk -F '\t' '$1 == "CURRENT" && $2 == "current" { print $3 }' <<< "$OUTPUT")
 assert_eq "$REMOTE" "$current_url" origin-url-without-trailing-space
+incoming_sha=$(awk -F '\t' '$1 == "UPDATE" && $2 == "behind" { print $5 }' <<< "$OUTPUT")
+assert_eq "$(git -C "$SEED" rev-parse HEAD)" "$incoming_sha" incoming-update-commit
 
 printf 'plugin-state-test: ok\n'

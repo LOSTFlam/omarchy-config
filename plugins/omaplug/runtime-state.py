@@ -225,10 +225,42 @@ def install(url, job, store):
         return int(result["failed"])
 
 
+def review_repository(url):
+    match = re.fullmatch(r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([A-Za-z0-9][A-Za-z0-9_.-]*)/([A-Za-z0-9][A-Za-z0-9_.-]*)/?", url)
+    if not match or ".." in url:
+        raise ValueError("invalid GitHub repository URL")
+    owner, repo = match.groups()
+    repo = repo.removesuffix(".git")
+    output = bytearray()
+    code = run(["git", "-c", "credential.helper=", "-c", "core.askPass=/bin/false",
+                "ls-remote", "--exit-code", "https://github.com/" + owner + "/" + repo, "HEAD"],
+               20, output.extend)
+    match = re.fullmatch(rb"([0-9a-f]{40})\s+HEAD\s*", bytes(output))
+    if code or not match:
+        raise ValueError("repository check failed")
+    commit = match[1].decode()
+    result = {"commit": commit, "version": ""}
+    output.clear()
+    try:
+        code = run(["curl", "-q", "-fsS", "--proto", "=https", "--max-time", "15",
+                    "--max-filesize", str(LIMIT),
+                    f"https://raw.githubusercontent.com/{owner}/{repo}/{commit}/manifest.json"],
+                   17, output.extend)
+        manifest = json.loads(output) if code == 0 else {}
+        if isinstance(manifest, dict) and isinstance(manifest.get("version"), str):
+            result["version"] = manifest["version"][:64]
+    except (ValueError, OSError, TimeoutError):
+        pass
+    return result
+
+
 def main():
     os.umask(0o077)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     action, *args = sys.argv[1:]
+    if action == "review":
+        print(json.dumps(review_repository(args[0])))
+        return 0
     if action == "update":
         return update(args[0], args[1], args[2:])
     with contextlib.closing(PrivateDirectory(state_root())) as store:

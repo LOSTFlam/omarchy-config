@@ -1,6 +1,7 @@
 #include "audio.h"
 #include "config.h"
 #include "device.h"
+#include "secure_file.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -22,6 +23,7 @@ void printHelp() {
       << "  --background, -bg     Run in background (detached from terminal)\n"
       << "  --analytics-only      Track keyboard analytics without playing sounds\n"
       << "  --no-analytics        Disable analytics for this sound process\n"
+      << "  --write-file <path> <data>  Securely write a plugin state/config file\n"
       << "  --help, -h            Show this help message\n"
       << "Note: default soundpack path is './' (current directory)\n"
       << "Example: wayvibes ~/wayvibes/akko_lavender_purples/ -v 3"
@@ -53,14 +55,24 @@ int main(int argc, char *argv[]) {
     configDir = std::string(home) + "/.config/wayvibes";
   }
 
-  if (!std::filesystem::exists(configDir)) {
+  const bool secureWriteCommand =
+      argc == 4 && std::string(argv[1]) == "--write-file";
+
+  if (!secureWriteCommand && !std::filesystem::exists(configDir)) {
     std::filesystem::create_directories(configDir);
   }
 
   for (int i = 1; i < argc; i++) {
     const std::string argument = argv[i];
 
-    if (argument == "--device") {
+    if (argument == "--write-file") {
+      if (i + 2 >= argc || !writeFileAtomically(argv[i + 1], argv[i + 2])) {
+        std::cerr << "Failed to securely write requested file." << std::endl;
+        return 1;
+      }
+      return 0;
+
+    } else if (argument == "--device") {
       saveInputDevice(configDir);
       return 0;
 

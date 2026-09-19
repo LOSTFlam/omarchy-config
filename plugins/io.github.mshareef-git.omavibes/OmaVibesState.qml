@@ -149,11 +149,11 @@ QtObject {
             return
 
         inputDevicePath = path
-        const quotedPath = shellQuote(path)
         writeInputDeviceProc.command = [
-            "bash", "-c",
-            "mkdir -p ~/.config/wayvibes && printf '%s' " + quotedPath +
-                " > ~/.config/wayvibes/input_device_path"
+            state.pluginBin,
+            "--write-file",
+            Quickshell.env("HOME") + "/.config/wayvibes/input_device_path",
+            path
         ]
         writeInputDeviceProc.running = true
 
@@ -238,10 +238,11 @@ QtObject {
             currentPack: currentPack,
             packVolumes: packVolumes
         })
-        const safePayload = payload.replace(/'/g, "'\\''")
         writeProc.command = [
-            "bash", "-c",
-            "mkdir -p ~/.local/state/omarchy && printf '%s' '" + safePayload + "' > '" + stateFile + "'"
+            state.pluginBin,
+            "--write-file",
+            stateFile,
+            payload
         ]
         writeProc.running = true
     }
@@ -949,10 +950,11 @@ QtObject {
 
         trackingMode = mode
 
-        const safeMode = mode.replace(/'/g, "'\\''")
         analyticsModeWriteProc.command = [
-            "bash", "-c",
-            "mkdir -p ~/.local/state/omarchy && printf '%s' '" + safeMode + "' > '" + analyticsModeFile + "'"
+            state.pluginBin,
+            "--write-file",
+            analyticsModeFile,
+            mode
         ]
         analyticsModeWriteProc.running = true
 

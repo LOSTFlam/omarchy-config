@@ -6,9 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-09-17
+
+### Added
+
+- Contribution section links the marketplace listing, so a like is one click away.
+- Week-day bars, week and year pager arrows, back buttons and the settings gear show tooltips with exact times on hover.
+
+### Fixed
+
+- The bar icon no longer renders larger than its neighbors in icon-only mode.
+- Corrupt values no longer poison totals: bad durations never accrue and malformed dates count zero days.
+
+## [1.6.1] - 2026-09-17
+
 ### Fixed
 
 - Reset today and Wipe all history buttons now respond to clicks in Settings.
+- Terminals that identify themselves by their full app id (Ghostty, Kitty and WezTerm among others) now get the per-command breakdown instead of landing in one opaque bucket.
+- Settings menu no longer logs errors on open, and the reset icons dim correctly when the color already is the default.
 
 ### Changed
 

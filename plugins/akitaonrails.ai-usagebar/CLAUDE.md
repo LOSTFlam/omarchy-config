@@ -7,8 +7,12 @@ these are invariants we keep almost-forgetting, not a project tour.
 
 When cutting a new version (patch, minor, or major):
 
-1. **Bump both versions** — `Cargo.toml` `version` and the root Omarchy
-   `manifest.json` `version` must match the release tag.
+1. **Bump all version surfaces** — `Cargo.toml` `version`, the root Omarchy
+   `manifest.json` `version`, and `packaging/scoop/ai-usagebar.json`
+   `version` must match the release tag. The Scoop manifest's URL/hash keep
+   the previous release's values in-tree; `publish-scoop` rewrites them
+   from the published sidecar at release time (verify-version only gates
+   `version` — v1.20.0 never shipped because the bump missed this file).
 2. **Update `CHANGELOG.md`**:
    - Add a new `## [X.Y.Z] — YYYY-MM-DD` section above the previous one.
    - Categorize entries by **Added / Changed / Fixed / Security** (Keep-A-Changelog).
@@ -67,12 +71,16 @@ When cutting a new version (patch, minor, or major):
    ```
    make changelog-check                        # released sections + version files intact
    make test                                   # cargo test + the desktop JS gate
+   cargo fmt --all -- --check                  # CI runs this; it is a hard gate
    cargo clippy --all-targets -- -D warnings   # clean
    cargo machete                               # no unused deps
    omarchy plugin validate .                   # plugin manifest + entry points
    ```
    `make test` rather than `cargo test`: it also runs the GNOME, KDE, and
-   Omarchy frontend contract suites. If `kde-plasmoid/` changed, also bump
+   Omarchy frontend contract suites. `cargo fmt --all -- --check` is on this
+   list because CI's ubuntu job runs it and fails the build on a diff — it was
+   missing here once, and a correctly-working commit landed on `main` red for
+   nothing but a rustfmt line-wrap. If `kde-plasmoid/` changed, also bump
    `KPlugin.Version` in `kde-plasmoid/package/metadata.json`; it is versioned
    independently of `Cargo.toml`, like the GNOME `metadata.json`.
 7. **Commit, tag, push**:

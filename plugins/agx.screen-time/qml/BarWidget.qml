@@ -227,13 +227,15 @@ BarWidget {
         }
 
         // OpticalGlyph centers glyph ink over the hidden label's advance.
+        // Body size, not icon size: the glyph must paint pixel-identical
+        // pixels in both modes, and time mode paints it at body size.
         OpticalGlyph {
             id: iconGlyph
             visible: !root.vertical && root.iconOnly
             anchors.fill: parent
             text: root.glyph
             fontFamily: button.fontFamily
-            fontSize: Style.font.title
+            fontSize: button.fontSize
             color: button.foreground
         }
 

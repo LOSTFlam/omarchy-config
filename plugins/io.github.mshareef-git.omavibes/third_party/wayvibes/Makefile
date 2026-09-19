@@ -1,6 +1,6 @@
 TARGET = wayvibes
 
-SRC = src/main.cpp src/audio.cpp src/device.cpp src/config.cpp src/analytics.cpp
+SRC = src/main.cpp src/audio.cpp src/device.cpp src/config.cpp src/analytics.cpp src/secure_file.cpp
 INC = -Isrc
 CXXFLAGS = -std=c++17 $(INC)
 LIBS = -levdev

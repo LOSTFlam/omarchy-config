@@ -301,6 +301,18 @@ test("daily goal threads from prefs to bar badge and hero bar", () => {
   assert.match(bar, /root\.goalTooltip/)
 })
 
+test("icon-only glyph matches time-mode size", () => {
+  // The glyph must paint identically in both modes, and time mode
+  // paints it at body size; the open indicator keeps tracking the
+  // painted ink width.
+  assert.match(bar, /id: iconGlyph/)
+  assert.match(bar, /visible: !root\.vertical && root\.iconOnly/)
+  assert.match(bar, /fontSize: button\.fontSize/)
+  assert.doesNotMatch(bar, /fontSize: Style\.bar\.iconFont/)
+  assert.doesNotMatch(bar, /fontSize: Style\.font\.title/)
+  assert.match(bar, /iconGlyph\.tightWidth/)
+})
+
 test("wipe-all needs four conscious clicks and names the blast radius", () => {
   assert.match(service, /function resetAll\(\)/)
   assert.match(bar, /function resetAll\(\): void/)
@@ -514,7 +526,7 @@ test("the week window repushes retention", () => {
 })
 
 test("week pills read in weeks", () => {
-  assert.match(menu, /text: modelData \+ "w"/)
+  assert.match(menu, /text: weekChip\.modelData \+ "w"/)
 })
 
 test("trophy color carries a wrapping caption", () => {
@@ -528,13 +540,15 @@ test("settings header icon returns to the main panel", () => {
   )
 })
 
-test("help section links out with icons and a privacy note", () => {
+test("help section links out with icons and a marketplace like", () => {
   assert.match(menu, /text: "CONTRIBUTION"/)
-  assert.match(menu, /Private by design/)
+  assert.doesNotMatch(menu, /Private by design/)
   assert.match(menu, /issues\/new/)
   assert.match(menu, /"Report a bug"/)
   assert.match(menu, /"Share an idea"/)
   assert.match(menu, /"Contribute"/)
+  assert.match(menu, /"Please leave a like"/)
+  assert.match(menu, /plugin\.html\?id=agx\.screen-time/)
   assert.match(menu, /Qt\.openUrlExternally\(modelData\.url\)/)
   assert.match(menu, /github\.com\/ax1g\/quickshell-screentime-plugin/)
 })
@@ -1029,6 +1043,50 @@ test("repeater index is never read inside delegates", () => {
   }
 })
 
+test("week bars and pager arrows carry tooltips", () => {
+  const daybar = comp("WeekDayBar.qml")
+  const arrow = comp("PagerArrow.qml")
+  // Day bars show exact time on dwell; the axis only renders whole hours.
+  assert.match(daybar, /required property color tipBackground/)
+  assert.match(
+    daybar,
+    /tipText: day\.modelData\.label \+ " \\u00b7 " \+ Model\.fmt\(day\.modelData\.ms\)/,
+  )
+  // Arrow tips are opt-in so call sites without a background stay unchanged.
+  assert.match(arrow, /property string tipText: ""/)
+  assert.match(
+    arrow,
+    /hovered: arrowMouse\.containsMouse && arrow\.tipText !== ""/,
+  )
+  assert.match(trend, /tipText: "Previous week"/)
+  assert.match(trend, /tipText: "Next week"/)
+  assert.match(trend, /tipBackground: root\.tipBackground/)
+})
+
+test("year pager, back buttons and gear carry tooltips", () => {
+  const drawer = qml("YearDrawer.qml")
+  const back = comp("BackButton.qml")
+  // BackButton tips are opt-in like PagerArrow, so existing call sites
+  // stay valid without a background.
+  assert.match(back, /property string tipText: ""/)
+  assert.match(
+    back,
+    /hovered: actionMouse\.containsMouse && action\.tipText !== ""/,
+  )
+  // The year drawer reuses its own panel background for tips.
+  assert.match(drawer, /tipText: "Previous year"/)
+  assert.match(drawer, /tipText: "Next year"/)
+  assert.match(drawer, /tipText: "Back to screen time"/)
+  assert.match(drawer, /tipBackground: root\.panelBackground/)
+  assert.match(panel, /tipText: "Back to screen time"/)
+  // The hero gear needs the bar background threaded through.
+  assert.match(hero, /required property color tipBackground/)
+  assert.match(hero, /tipText: "Settings"/)
+  assert.match(
+    panel,
+    /tipBackground: root\.bar \? root\.bar\.background : Color\.background/,
+  )
+})
 test("week header nudges the next arrow after the range text", () => {
   assert.match(trend, /anchors\.right: weekTotalLabel\.left/)
   assert.match(trend, /anchors\.left: prevArrow\.right/)

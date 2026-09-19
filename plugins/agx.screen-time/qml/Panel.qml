@@ -36,7 +36,7 @@ Panel {
     readonly property bool hideRecordTrophy: root.prefs.hideRecordTrophy === true
     // Plugin version, mirrored from manifest.json (a test fails when
     // they drift apart); shown in the settings About section.
-    readonly property string pluginVersion: "1.6.0"
+    readonly property string pluginVersion: "1.6.2"
 
     // Week presets, up to 52 weeks back. App detail always covers the
     // visible window (see effectiveKeepDays below).
@@ -621,6 +621,8 @@ Panel {
                         anchors.top: parent.top
                         foreground: root.contentForeground
                         fontFamily: root.contentFontFamily
+                        tipText: "Back to screen time"
+                        tipBackground: root.bar ? root.bar.background : Color.background
                         onClicked: root.openConfig(false)
                     }
 
@@ -772,6 +774,7 @@ Panel {
                         goalProgress: root.goalProgress
                         hintMode: root.hintMode
                         accent: Color.accent
+                        tipBackground: root.bar ? root.bar.background : Color.background
                         onExpandToggled: root.toggleExpanded()
                         onCalendarToggled: root.openCalendar(!root.calendarOpen)
                         onConfigToggled: root.openConfig(!root.configOpen)

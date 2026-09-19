@@ -139,16 +139,25 @@ Rectangle {
       font.pixelSize: Style.font.caption
     }
     Item { Layout.fillHeight: true }
-    Text {
+    RowLayout {
       Layout.fillWidth: true
-      textFormat: Text.RichText
-      text: "Omaplug v" + page.pluginVersion + " · <a href=\"https://github.com/fross100/omaplug/releases/tag/v" + page.pluginVersion + "\">Release notes</a>"
-      color: page.foreground
-      linkColor: Color.accent
-      font.family: page.fontFamily
-      font.pixelSize: Style.font.caption
-      horizontalAlignment: Text.AlignHCenter
-      onLinkActivated: function(link) { page.openUrlRequested(link) }
+      Text {
+        text: "Omaplug v" + page.pluginVersion + " ·"
+        textFormat: Text.PlainText
+        color: page.foreground
+        font.family: page.fontFamily
+        font.pixelSize: Style.font.caption
+        Layout.fillWidth: true
+        horizontalAlignment: Text.AlignRight
+      }
+      Button {
+        text: "Release notes"
+        foreground: page.foreground
+        accent: Color.accent
+        fontFamily: page.fontFamily
+        fontSize: Style.font.caption
+        onClicked: page.openUrlRequested("https://github.com/fross100/omaplug/releases/tag/v" + encodeURIComponent(page.pluginVersion))
+      }
     }
   }
 }

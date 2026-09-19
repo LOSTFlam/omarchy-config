@@ -14,6 +14,9 @@ try {
     Quickshell: { env: () => temporary }
   });
   context.root = context;
+  context.Presentation = vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../panel/Presentation.js'), 'utf8')
+    .replace(/^\.pragma library\s*/, ''), context.Presentation);
   for (const name of ['applyPluginList', 'applyPluginMetadata', 'mergeMarketplaceMetadata', 'applyMarketplaceCatalog']) {
     const start = source.indexOf('  function ' + name + '(');
     assert.notEqual(start, -1);
@@ -65,11 +68,12 @@ try {
   vm.runInContext(page.slice(start, page.indexOf('\n  }', start) + 4), context);
   context.applyMarketplaceCatalog(JSON.stringify({ plugins: [{
     id: 'listed', verificationStatus: 'unverified',
-    verificationSnapshotStatus: 'verified', verificationCoverage: 'update-unverified', verificationCommit: 'abc'
+    verificationSnapshotStatus: 'verified', verificationCoverage: 'update-unverified', verificationCommit: 'a'.repeat(40)
   }] }));
   assert.equal(context.marketplaceMap.listed.snapshotStatus, 'update-unverified');
   context.updateStates = { folder: 'UPDATE' };
-  context.localCommits = { folder: 'abc' };
+  context.localCommits = { folder: 'a'.repeat(40) };
+  context.incomingCommits = { folder: 'b'.repeat(40) };
   context.marketplaceFetching = false;
   context.marketplaceFetchFailed = false;
   assert.equal(context.verificationText('listed', 'folder'), 'Update Unverified');
@@ -86,6 +90,23 @@ try {
   context.updateStates.folder = 'UPDATE';
   assert.equal(context.verificationText('listed', 'folder'), 'Unverified');
   console.log('update-verification-test: ok');
+  const reviewStart = source.indexOf('  function reviewVerificationStatus(');
+  vm.runInContext(source.slice(reviewStart, source.indexOf('\n  }', reviewStart) + 4), context);
+  context.reviewProcess = { running: false };
+  context.installReviewEntry = () => ({ verified: true, snapshotCommit: 'abc' });
+  context.reviewRepository = { commit: 'abc' };
+  assert.equal(context.reviewVerificationStatus(), 'Verified on marketplace');
+  context.reviewRepository = { commit: 'def' };
+  assert.equal(context.reviewVerificationStatus(), 'Update Unverified');
+  context.reviewRepository = {};
+  assert.equal(context.reviewVerificationStatus(), 'Unable to check');
+  context.reviewProcess.running = true;
+  assert.equal(context.reviewVerificationStatus(), 'Checking…');
+  context.reviewProcess.running = false;
+  context.installReviewEntry = () => ({ verified: false });
+  assert.equal(context.reviewVerificationStatus(), 'Unverified');
+  context.installReviewEntry = () => null;
+  assert.equal(context.reviewVerificationStatus(), 'Not listed on Marketplace');
   const reopenStart = source.indexOf('  function keepOpenAcrossRebuild(');
   vm.runInContext(source.slice(reopenStart, source.indexOf('\n  }', reopenStart) + 4), context);
   context.keepOpenFlagWrite = {};

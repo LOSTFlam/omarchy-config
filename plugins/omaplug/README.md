@@ -29,7 +29,7 @@ Omaplug is listed on the marketplace: [plugins.omarchy.org/plugin.html?id=omaplu
     <td align="center">Install dialog</td>
   </tr>
   <tr>
-    <td align="center"><img src="preview/preview_install-review.png" alt="Plugin install review" width="280"/></td>
+    <td align="center"><img src="preview/plugin-review.png" alt="Plugin review" width="280"/></td>
     <td align="center"><img src="preview/preview_settings.png" alt="Settings page" width="280"/></td>
     <td align="center"><img src="preview/preview_layout.png" alt="Bar layout page" width="280"/></td>
   </tr>

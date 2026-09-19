@@ -14,9 +14,10 @@ function shortSha(sha) {
 }
 
 function normalizedGitHubUrl(repoUrl) {
-  var url = String(repoUrl || "")
-  if (!/^https:\/\/github\.com\//.test(url)) return ""
-  return url.replace(/\.git\/?$/, "").replace(/\/+$/, "")
+  var url = String(repoUrl || "").trim()
+  var match = url.match(/^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9][A-Za-z0-9_.-]*)\/([A-Za-z0-9][A-Za-z0-9_.-]*?)(?:\.git)?\/?$/)
+  if (!match || match[1].indexOf("..") !== -1 || match[2].indexOf("..") !== -1) return ""
+  return "https://github.com/" + match[1] + "/" + match[2]
 }
 
 function commitUrl(repoUrl, sha) {
@@ -69,7 +70,15 @@ function iconColor(name) {
   return palette[Math.abs(hash) % palette.length]
 }
 
-function bulkUpdateKeys(rows, states, marketplace, scope) {
+function commitVerification(entry, commit) {
+  if (!entry) return "Not listed"
+  if (!entry.verified && entry.snapshotStatus !== "update-unverified") return "Unverified"
+  if (!/^[0-9a-f]{40}$/.test(String(commit || ""))
+      || !/^[0-9a-f]{40}$/.test(String(entry.snapshotCommit || ""))) return "Verification unavailable"
+  return entry.verified && commit === entry.snapshotCommit ? "Verified" : "Update Unverified"
+}
+
+function bulkUpdateKeys(rows, states, marketplace, scope, incomingCommits) {
   var sources = Object.create(null)
   var keys = []
   for (var i = 0; i < rows.length; i++) {
@@ -77,8 +86,9 @@ function bulkUpdateKeys(rows, states, marketplace, scope) {
     var key = String(row.sourceKey || "")
     if (!key || states[key] !== "UPDATE") continue
     var entry = marketplace[String(row.id)]
-    var allowed = scope === "all" || !!(entry && (entry.verified === true
-      || (scope === "pending" && entry.snapshotStatus === "update-unverified")))
+    var status = commitVerification(entry, (incomingCommits || {})[key])
+    var allowed = scope === "all" || status === "Verified"
+      || (scope === "pending" && status === "Update Unverified")
     if (sources[key] === undefined) {
       keys.push(key)
       sources[key] = true

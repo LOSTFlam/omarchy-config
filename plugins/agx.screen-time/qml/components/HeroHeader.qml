@@ -18,6 +18,7 @@ Item {
     required property bool configOpen
     required property bool hintMode
     required property color accent
+    required property color tipBackground
     required property double dayTotal
     required property string activeDayKey
     required property string activeDayLabel
@@ -174,6 +175,17 @@ Item {
             if (heroHeader.easterEggs)
                 gearSpin.restart();
             heroHeader.configToggled();
+        }
+
+        // Parented to the gear's own hit area so the tip centers
+        // above the icon, not above the full-width header.
+        ScreenTip {
+            foreground: heroHeader.foreground
+            fontFamily: heroHeader.fontFamily
+            tipBackground: heroHeader.tipBackground
+
+            hovered: configGearMouse.containsMouse
+            tipText: "Settings"
         }
     }
 

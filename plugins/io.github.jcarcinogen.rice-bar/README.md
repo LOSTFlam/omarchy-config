@@ -1,6 +1,6 @@
 # Rice Bar
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/scottangel)
+[![Tip with X Money](tip-with-x-money.png)](https://x.com/scottito22)
 
 Theme-aware visual presets for the **stock Omarchy Quattro bar**.
 

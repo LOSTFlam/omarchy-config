@@ -199,7 +199,7 @@ Panel {
     return ["verified", "pending", "all"].indexOf(scope) >= 0 ? scope : "all"
   }
   readonly property var bulkUpdateKeys: Presentation.bulkUpdateKeys(
-    root.updateCheckRows, root.updateStates, root.marketplaceMap, root.bulkUpdateScope)
+    root.updateCheckRows, root.updateStates, root.marketplaceFetchFailed ? ({}) : root.marketplaceMap, root.bulkUpdateScope, root.incomingCommits)
   readonly property string bulkUpdateLabel: root.bulkUpdateScope === "verified"
     ? "Update verified" : root.bulkUpdateScope === "pending" ? "Update verified + pending" : "Update all"
 
@@ -241,6 +241,7 @@ Panel {
 
   // Update checking state, keyed by the plugin folder name (sourceKey).
   property var updateStates: ({})
+  property var incomingCommits: ({})
   property bool checkingUpdates: false
   property bool updatingAll: false
   property string updateSummary: ""
@@ -313,6 +314,7 @@ Panel {
   // policy explicit. installPendingUrl carries the extracted URL.
   property bool installConfirmOpen: false
   property string installPendingUrl: ""
+  property var reviewRepository: ({})
   // Status file for the detached installer. The file is created securely
   // via mktemp (XDG_RUNTIME_DIR) so the helper can truncate it without
   // following an attacker-controlled symlink. The plugin is installed but
@@ -703,10 +705,8 @@ Panel {
   }
 
   function openPluginRepo(sourceKey) {
-    var url = root.repoUrlFor(sourceKey)
-    // Only hand http(s) URLs to the browser: a malicious plugin's git remote
-    // could otherwise use file://, command:, or custom schemes via xdg-open.
-    if (url && /^https?:\/\//.test(url)) Qt.openUrlExternally(url)
+    var url = Presentation.normalizedGitHubUrl(root.repoUrlFor(sourceKey))
+    if (url !== "") root.openExternal(url)
   }
 
   // Open an http(s) URL in the browser. QDesktopServices can silently no-op
@@ -803,6 +803,11 @@ Panel {
     var key = parts[1]
     if (["CHECK", "CURRENT", "UPDATE", "LOCAL_CHANGES", "LOCAL", "ERROR"].indexOf(state) < 0 || key === "") return
     root.updateCheckSeen[key] = true
+    var incoming = Object.assign({}, root.incomingCommits)
+    delete incoming[key]
+    if ((state === "UPDATE" || state === "CURRENT") && /^[0-9a-f]{40}$/.test(parts[4] || ""))
+      incoming[key] = parts[4]
+    root.incomingCommits = incoming
     var st = {}
     for (var k in root.updateStates) st[k] = root.updateStates[k]
     st[key] = state
@@ -1299,6 +1304,7 @@ Panel {
   // expectations and preventing arbitrary host installs. The plugin is
   // installed but NOT enabled by default.
   function requestInstall(rawText) {
+    if (reviewProcess.running) return
     var raw = String(rawText || "").trim()
     if (raw === "") return
     var url = root.extractInstallUrl(raw)
@@ -1310,18 +1316,47 @@ Panel {
     root.installFailed = false
     root.installResult = ""
     root.installPendingUrl = url
+    root.reviewRepository = ({})
+    root.fetchMarketplace()
+    if (!reviewProcess.running) {
+      reviewProcess.command = ["python3", root.runtimeStatePath, "review", url]
+      reviewProcess.running = true
+    }
     root.installConfirmOpen = true
   }
 
+  property Process reviewProcess: Process {
+    stdout: StdioCollector { id: reviewOutput; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (command[3] !== root.installPendingUrl) return
+      try {
+        root.reviewRepository = exitCode === 0 ? JSON.parse(reviewOutput.text) : ({})
+      } catch (e) { root.reviewRepository = ({}) }
+    }
+  }
+
+  function reviewVerificationStatus() {
+    var entry = root.installReviewEntry()
+    if (root.marketplaceFetching || reviewProcess.running) return "Checking…"
+    if (root.marketplaceFetchFailed) return "Unable to check"
+    if (!entry) return "Not listed on Marketplace"
+    if (!entry.verified && entry.snapshotStatus !== "update-unverified") return "Unverified"
+    var commit = String(root.reviewRepository.commit || "")
+    if (!commit || !entry.snapshotCommit) return "Unable to check"
+    if (commit !== entry.snapshotCommit) return "Update Unverified"
+    return entry.verified ? "Verified on marketplace" : "Update Unverified"
+  }
+
   function installReviewEntry() {
-    var url = String(root.installPendingUrl).replace(/\.git$/, "").replace(/\/$/, "")
+    var url = Presentation.normalizedGitHubUrl(root.installPendingUrl)
+    if (url === "") return null
     var repo = url.substring(url.lastIndexOf("/") + 1).toLowerCase()
     var parts = url.split("/")
     var owner = parts.length > 1 ? parts[parts.length - 2].toLowerCase().replace(/[^a-z0-9]/g, "") : ""
     var repoSlug = repo.replace(/^omarchy[-_]/, "").replace(/[^a-z0-9]/g, "")
     for (var id in root.marketplaceMap) {
       var entry = root.marketplaceMap[id]
-      var listedRepo = String(entry.repositoryUrl || "").replace(/\.git$/, "").replace(/\/$/, "").toLowerCase()
+      var listedRepo = Presentation.normalizedGitHubUrl(entry.repositoryUrl).toLowerCase()
       var listedId = String(id).toLowerCase()
       var idSlug = listedId.replace(/[^a-z0-9]/g, "")
       if (listedRepo === url.toLowerCase() || listedId === repo
@@ -1340,9 +1375,10 @@ Panel {
   }
 
   function installAlreadyInstalled() {
-    var target = String(root.installPendingUrl).replace(/\.git$/, "").replace(/\/$/, "").toLowerCase()
+    var target = Presentation.normalizedGitHubUrl(root.installPendingUrl).toLowerCase()
+    if (target === "") return false
     for (var key in root.pluginRepos) {
-      var repo = String(root.pluginRepos[key] || "").replace(/\.git$/, "").replace(/\/$/, "").toLowerCase()
+      var repo = Presentation.normalizedGitHubUrl(root.pluginRepos[key]).toLowerCase()
       if (repo !== "" && repo === target) return true
     }
     return false
@@ -1616,7 +1652,8 @@ Panel {
 
   function refreshBarLayout() {
     if (root.barLayoutProcess.running) return
-    root.barLayoutProcess.command = ["bash", "-c", "cat \"${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/shell.json\""]
+    var configHome = Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config"
+    root.barLayoutProcess.command = ["cat", configHome + "/omarchy/shell.json"]
     root.barLayoutProcess.running = true
   }
 
@@ -2244,6 +2281,7 @@ Panel {
       updateStates: root.updateStates
       marketplaceMap: root.marketplaceMap
       localCommits: root.pluginCommits
+      incomingCommits: root.incomingCommits
       marketplaceFetching: root.marketplaceFetching
       marketplaceFetchFailed: root.marketplaceFetchFailed
       checking: root.checkingUpdates
@@ -2402,7 +2440,7 @@ Panel {
       onConfirmRequested: root.confirmRestartShell()
     }
 
-    Dialogs.Install {
+    Dialogs.Review {
       anchors.fill: parent
       z: 10000
 
@@ -2431,14 +2469,18 @@ Panel {
       maximumWidth: Style.space(380)
       titleWrapMode: Text.WordWrap
       pluginName: root.installReviewEntry() ? (root.installReviewEntry().name || root.installPendingUrl.split("/").pop()) : root.installPendingUrl.split("/").pop()
-      pluginVersion: root.installReviewEntry() ? String(root.installReviewEntry().version || "") : ""
+      pluginVersion: ""
+      versionComparison: "\udb86\ude6f " + (root.installReviewEntry() ? String(root.installReviewEntry().version || "Unknown") : "Not listed")
+        + "    \uf09b " + (reviewProcess.running ? "Checking…" : String(root.reviewRepository.version || "Unavailable"))
+      reviewNote: reviewProcess.running || root.marketplaceFetching ? "Checking the latest repository and Marketplace details…"
+        : root.reviewVerificationStatus() === "Update Unverified" ? "The repository code is not covered by the current Marketplace verification, even if the versions match."
+        : root.reviewVerificationStatus() === "Unable to check" ? "Could not confirm whether the repository matches the verified Marketplace code."
+        : ""
+      confirmEnabled: !reviewProcess.running && !root.marketplaceFetching
       pluginDescription: root.installReviewEntry() ? String(root.installReviewEntry().description || "") : ""
       pluginIcon: root.installReviewEntry() ? String(root.installReviewEntry().icon || "") : ""
       marketplaceListed: root.installReviewEntry() !== null
-      marketplaceStatus: root.installReviewEntry()
-        ? (root.installReviewEntry().snapshotStatus === "update-unverified" ? "Update Unverified"
-          : root.installReviewEntry().verified ? "Verified on marketplace" : "Unverified")
-        : "Not listed on marketplace"
+      marketplaceStatus: root.reviewVerificationStatus()
       sourceUrl: root.installPendingUrl
       marketplaceUrl: root.installReviewEntryId() !== "" ? "https://plugins.omarchy.org/plugin.html?id=" + encodeURIComponent(root.installReviewEntryId()) : ""
       alreadyInstalled: root.installAlreadyInstalled()

@@ -1,4 +1,5 @@
 #include "device.h"
+#include "secure_file.h"
 #include <cstring>
 #include <dirent.h>
 #include <fcntl.h>
@@ -171,9 +172,10 @@ void saveInputDevice(std::string &configDir) {
       deviceToSave = deviceDir + selectedDevice;
     }
 
-    std::ofstream outputFile(configDir + "/input_device_path");
-    outputFile << deviceToSave;
-    outputFile.close();
+    if (!writeFileAtomically(configDir + "/input_device_path", deviceToSave)) {
+      std::cerr << RED << "Failed to securely save device path." << RESET << std::endl;
+      return;
+    }
     std::cout << GREEN << "Device path saved: " << deviceToSave << RESET << std::endl;
   } else {
     std::cerr << RED << "No device selected. Exiting." << RESET << std::endl;

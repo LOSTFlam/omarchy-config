@@ -33,6 +33,9 @@ Rectangle {
   property string sourceUrl: ""
   property string marketplaceUrl: ""
   property bool alreadyInstalled: false
+  property bool confirmEnabled: true
+  property string versionComparison: ""
+  property string reviewNote: ""
 
   signal cancelRequested
   signal confirmRequested
@@ -112,24 +115,29 @@ Rectangle {
         }
         ColumnLayout {
           Layout.fillWidth: true
+          Layout.minimumWidth: 0
           spacing: Style.space(2)
-          RowLayout {
+          Item {
+            id: nameRow
             Layout.fillWidth: true
-            spacing: Style.space(6)
+            Layout.minimumWidth: 0
+            implicitHeight: Math.max(pluginTitle.implicitHeight, marketplaceBadge.implicitHeight)
             Text {
+              id: pluginTitle
+              anchors.verticalCenter: parent.verticalCenter
               text: dialog.pluginName
+              textFormat: Text.PlainText
               color: dialog.foreground
               font.family: dialog.fontFamily
               font.pixelSize: Style.font.body
               font.bold: true
-              Layout.fillWidth: true
+              width: Math.max(0, Math.min(implicitWidth, nameRow.width - (marketplaceBadge.visible ? marketplaceBadge.width + Style.space(6) : 0)))
               elide: Text.ElideRight
             }
-          }
-          RowLayout {
-            spacing: Style.space(6)
             Rectangle {
               id: marketplaceBadge
+              x: pluginTitle.width + Style.space(6)
+              anchors.verticalCenter: parent.verticalCenter
               visible: dialog.marketplaceStatus !== ""
               implicitWidth: badgeContent.implicitWidth + Style.space(10)
               implicitHeight: Style.space(16)
@@ -153,7 +161,7 @@ Rectangle {
                 Text {
                   text: dialog.marketplaceStatus === "Verified on marketplace" ? "Verified"
                     : dialog.marketplaceStatus === "Update Unverified" ? "Update Unverified"
-                    : dialog.marketplaceListed ? "Unverified" : "Not listed on Marketplace"
+                    : dialog.marketplaceStatus
                   color: dialog.marketplaceStatus === "Verified on marketplace" ? Color.accent
                     : dialog.marketplaceStatus === "Update Unverified" ? Qt.hsla(0.12, 0.75, 0.55, 1)
                     : Qt.darker(dialog.foreground, 2.0)
@@ -162,6 +170,9 @@ Rectangle {
                 }
               }
             }
+          }
+          RowLayout {
+            spacing: Style.space(6)
             Text {
               text: dialog.pluginVersion
               visible: text !== ""
@@ -171,23 +182,53 @@ Rectangle {
             }
           }
           Text {
-            text: dialog.pluginDescription
+            text: dialog.versionComparison
+            textFormat: Text.PlainText
             visible: text !== ""
-            color: Qt.darker(dialog.foreground, 1.6)
+            color: dialog.foreground
             font.family: dialog.fontFamily
             font.pixelSize: Style.font.caption
             Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            maximumLineCount: 3
-            elide: Text.ElideRight
+            wrapMode: Text.WrapAnywhere
+            Accessible.name: "Marketplace version, then repository version: " + text
+            ToolTip.visible: versionHover.containsMouse
+            ToolTip.text: "Marketplace version · GitHub repository version"
+            MouseArea {
+              id: versionHover
+              anchors.fill: parent
+              hoverEnabled: true
+              acceptedButtons: Qt.NoButton
+            }
           }
         }
       }
+      Text {
+        text: dialog.pluginDescription
+        textFormat: Text.PlainText
+        visible: text !== ""
+        color: Qt.darker(dialog.foreground, 1.6)
+        font.family: dialog.fontFamily
+        font.pixelSize: Style.font.caption
+        Layout.fillWidth: true
+        wrapMode: Text.WordWrap
+        maximumLineCount: 3
+        elide: Text.ElideRight
+      }
       Rectangle {
-        visible: dialog.pluginName !== "" && !dialog.marketplaceListed
+        visible: dialog.pluginName !== "" && (dialog.reviewNote !== "" || !dialog.marketplaceListed)
         Layout.fillWidth: true
         height: 1
         color: Qt.darker(dialog.foreground, 1.8)
+      }
+      Text {
+        text: dialog.reviewNote
+        textFormat: Text.PlainText
+        visible: text !== ""
+        color: Color.urgent
+        font.family: dialog.fontFamily
+        font.pixelSize: Style.font.caption
+        Layout.fillWidth: true
+        wrapMode: Text.WordWrap
       }
 
       RowLayout {
@@ -239,7 +280,7 @@ Rectangle {
           bordered: true
           borderSpec: Border.controlSpec("normal", foreground, accent)
           text: dialog.alreadyInstalled ? "Installed" : dialog.confirmText
-          enabled: !dialog.alreadyInstalled
+          enabled: !dialog.alreadyInstalled && dialog.confirmEnabled
           opacity: dialog.alreadyInstalled ? 0.5 : 1
           foreground: dialog.confirmForeground
           accent: dialog.confirmAccent

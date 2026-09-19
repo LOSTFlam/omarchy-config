@@ -21,6 +21,7 @@ Rectangle {
   required property var updateStates
   required property var marketplaceMap
   required property var localCommits
+  required property var incomingCommits
   required property bool marketplaceFetching
   required property bool marketplaceFetchFailed
   required property bool checking
@@ -72,7 +73,11 @@ Rectangle {
   }
 
   function verificationText(id, sourceKey) {
+    if (marketplaceFetching) return "Checking verification…"
+    if (marketplaceFetchFailed) return "Verification unavailable"
     var entry = marketplaceMap[String(id)]
+    if (updateStates[String(sourceKey)] === "UPDATE")
+      return Presentation.commitVerification(entry, incomingCommits[String(sourceKey)])
     if (entry) {
       var local = String((localCommits || {})[String(sourceKey)] || "")
       var snapshot = String(entry.snapshotCommit || "")
@@ -92,7 +97,7 @@ Rectangle {
     if (status === "Verified") return Color.accent
     if (status === "Update Unverified")
       return Qt.hsla(0.12, 0.75, 0.55, 1)
-    return Qt.darker(foreground, 1.6)
+    return Qt.darker(foreground, 2.0)
   }
 
   // Swallows clicks that land in a gap between controls (margins, spacing,
@@ -100,7 +105,7 @@ Rectangle {
   // behind this page - the main plugin list is still visible/enabled there.
   // Declared before the Loader so its buttons/rows still take priority for
   // clicks that actually land on them; same pattern as the dialogs'
-  // full-page MouseArea (panel/dialogs/Confirm.qml, Install.qml).
+  // full-page MouseArea (panel/dialogs/Confirm.qml, Review.qml).
   MouseArea {
     anchors.fill: parent
     onClicked: {}
@@ -237,54 +242,58 @@ Rectangle {
                   Layout.alignment: Qt.AlignVCenter
                   spacing: Style.space(2)
 
-                  Label {
-                    text: updateRow.modelData.name
-                    textFormat: Text.PlainText
-                    color: page.foreground
-                    font.family: page.fontFamily
-                    font.pixelSize: Style.font.body
-                    font.bold: true
+                  Item {
+                    id: updateNameRow
                     Layout.fillWidth: true
-                    elide: Label.ElideRight
-                  }
-
-                  RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Style.space(5)
+                    implicitHeight: Math.max(updateName.implicitHeight, verificationBadge.implicitHeight)
 
                     Label {
-                      text: page.statusText(updateRow.modelData.sourceKey)
+                      id: updateName
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: Math.min(implicitWidth, Math.max(0, updateNameRow.width - verificationBadge.width - Style.space(8)))
+                      text: updateRow.modelData.name
                       textFormat: Text.PlainText
-                      color: page.statusColor(updateRow.modelData.sourceKey)
+                      color: page.foreground
                       font.family: page.fontFamily
-                      font.pixelSize: Style.font.caption
-                    }
-
-                    Label {
-                      text: "·"
-                      textFormat: Text.PlainText
-                      color: Qt.darker(page.foreground, 2.0)
-                      font.family: page.fontFamily
-                      font.pixelSize: Style.font.caption
+                      font.pixelSize: Style.font.body
+                      font.bold: true
+                      elide: Label.ElideRight
                     }
 
                     Rectangle {
+                      id: verificationBadge
+                      anchors.left: updateName.right
+                      anchors.leftMargin: Style.space(8)
+                      anchors.verticalCenter: parent.verticalCenter
+                      readonly property bool verified: page.verificationText(updateRow.modelData.id, updateRow.modelData.sourceKey) === "Verified"
                       readonly property bool updateUnverified: page.verificationText(updateRow.modelData.id, updateRow.modelData.sourceKey) === "Update Unverified"
                       implicitWidth: verificationLabel.implicitWidth + Style.space(10)
                       implicitHeight: Style.space(16)
                       radius: height / 2
-                      color: updateUnverified ? Qt.rgba(0.85, 0.65, 0.13, 0.18) : "transparent"
+                      color: updateUnverified ? Qt.rgba(0.85, 0.65, 0.13, 0.18)
+                        : verified ? Util.alpha(Color.accent, 0.18) : Util.alpha(page.foreground, 0.08)
 
                       Label {
                         id: verificationLabel
                         anchors.centerIn: parent
-                        text: page.verificationText(updateRow.modelData.id, updateRow.modelData.sourceKey)
+                        text: (verificationBadge.updateUnverified ? "\uf071 " : verificationBadge.verified ? "\uf058 " : "")
+                          + page.verificationText(updateRow.modelData.id, updateRow.modelData.sourceKey)
                         textFormat: Text.PlainText
                         color: page.verificationColor(updateRow.modelData.id, updateRow.modelData.sourceKey)
                         font.family: page.fontFamily
-                        font.pixelSize: Style.font.caption
+                        font.pixelSize: Style.font.caption - 1
                       }
                     }
+                  }
+
+                  Label {
+                    text: page.statusText(updateRow.modelData.sourceKey)
+                    textFormat: Text.PlainText
+                    color: page.statusColor(updateRow.modelData.sourceKey)
+                    font.family: page.fontFamily
+                    font.pixelSize: Style.font.caption
+                    Layout.fillWidth: true
+                    elide: Label.ElideRight
                   }
 
                   Text {

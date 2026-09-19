@@ -490,6 +490,8 @@ Column {
 
                     // Reset glyph at the right; restores the default color.
                     Item {
+                        id: resetTrophy
+
                         width: resetTrophyGlyph.implicitWidth
                         height: Style.space(20)
 
@@ -499,7 +501,7 @@ Column {
                             id: resetTrophyGlyph
                             text: "\uf0e2"
                             color: root.accent
-                            opacity: chosen ? 1.0 : 0.6
+                            opacity: resetTrophy.chosen ? 1.0 : 0.6
                             font.family: root.fontFamily
                             font.pixelSize: Style.font.title
                             anchors.centerIn: parent
@@ -627,6 +629,8 @@ Column {
                     // Reset glyph at the right; restores the default
                     // (the theme foreground).
                     Item {
+                        id: resetHero
+
                         width: resetHeroGlyph.implicitWidth
                         height: Style.space(20)
 
@@ -636,7 +640,7 @@ Column {
                             id: resetHeroGlyph
                             text: "\uf0e2"
                             color: root.accent
-                            opacity: chosen ? 1.0 : 0.6
+                            opacity: resetHero.chosen ? 1.0 : 0.6
                             font.family: root.fontFamily
                             font.pixelSize: Style.font.title
                             anchors.centerIn: parent
@@ -731,6 +735,8 @@ Column {
                         model: root.weekOptions
 
                         Rectangle {
+                            id: weekChip
+
                             required property int modelData
                             readonly property bool chosen: modelData === root.weekCount
                             width: Style.space(44)
@@ -741,12 +747,12 @@ Column {
                             border.width: 1
 
                             Text {
-                                text: modelData + "w"
-                                color: chosen ? root.accent : root.foreground
-                                opacity: chosen ? 1.0 : 0.6
+                                text: weekChip.modelData + "w"
+                                color: weekChip.chosen ? root.accent : root.foreground
+                                opacity: weekChip.chosen ? 1.0 : 0.6
                                 font.family: root.fontFamily
                                 font.pixelSize: Style.font.bodySmall
-                                font.bold: chosen
+                                font.bold: weekChip.chosen
                                 anchors.centerIn: parent
                             }
 
@@ -882,6 +888,8 @@ Column {
                         model: root.dailyGoalOptions
 
                         Rectangle {
+                            id: goalChip
+
                             required property int modelData
                             readonly property bool chosen: modelData === root.dailyGoalHours
                             width: modelData === 0 ? Style.space(52) : Style.space(44)
@@ -892,12 +900,12 @@ Column {
                             border.width: 1
 
                             Text {
-                                text: modelData === 0 ? "Off" : modelData + "h"
-                                color: chosen ? root.accent : root.foreground
-                                opacity: chosen ? 1.0 : 0.6
+                                text: goalChip.modelData === 0 ? "Off" : goalChip.modelData + "h"
+                                color: goalChip.chosen ? root.accent : root.foreground
+                                opacity: goalChip.chosen ? 1.0 : 0.6
                                 font.family: root.fontFamily
                                 font.pixelSize: Style.font.bodySmall
-                                font.bold: chosen
+                                font.bold: goalChip.chosen
                                 anchors.centerIn: parent
                             }
 
@@ -1422,6 +1430,12 @@ Column {
             label: "Contribute",
             sub: "Pull requests welcome",
             url: "https://github.com/ax1g/quickshell-screentime-plugin"
+        },
+        {
+            glyph: "\uf004",
+            label: "Please leave a like",
+            sub: "A like on the marketplace keeps it going",
+            url: "https://plugins.omarchy.org/plugin.html?id=agx.screen-time"
         }
     ]
 
@@ -1449,36 +1463,6 @@ Column {
                 font.pixelSize: Style.font.caption
                 font.bold: true
                 font.letterSpacing: 1.5
-            }
-
-            // Private by design: everything lives in one local file.
-            Item {
-                width: parent.width
-                height: Math.max(lockGlyph.implicitHeight, lockLabel.implicitHeight)
-
-                Text {
-                    id: lockGlyph
-                    text: "\uf023"
-                    color: root.accent
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-
-                Text {
-                    id: lockLabel
-                    text: "Private by design — one local file, nothing leaves this machine"
-                    color: root.foreground
-                    opacity: 0.6
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                    anchors.left: lockGlyph.right
-                    anchors.leftMargin: Style.space(10)
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    wrapMode: Text.WordWrap
-                }
             }
 
             // Outer-id reads are idiomatic in delegates, covered by the

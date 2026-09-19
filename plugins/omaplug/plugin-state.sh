@@ -19,7 +19,7 @@ emit_state() {
   local id="$2"
   local url="${3:-}"
   local detail="${4:-}"
-  printf '%s\t%s\t%s\t%s\n' "$state" "$id" "$url" "$detail"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$state" "$id" "$url" "$detail" "${5:-}"
 }
 
 origin_url() {
@@ -93,9 +93,9 @@ for dir in "$PLUGINS_DIR"/*; do
   if [[ -z $remote ]]; then
     emit_state ERROR "$id" "$url" invalid-fetch-head
   elif [[ $head == "$remote" ]]; then
-    emit_state CURRENT "$id" "$url" equal
+    emit_state CURRENT "$id" "$url" equal "$remote"
   elif git -C "$dir" merge-base --is-ancestor "$head" "$remote" 2>/dev/null; then
-    emit_state UPDATE "$id" "$url" behind
+    emit_state UPDATE "$id" "$url" behind "$remote"
   elif git -C "$dir" merge-base --is-ancestor "$remote" "$head" 2>/dev/null; then
     emit_state LOCAL_CHANGES "$id" "$url" ahead
   else
