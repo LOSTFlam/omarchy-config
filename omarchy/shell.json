@@ -34,6 +34,11 @@
           "id": "omarchy.indicators"
         },
         {
+          "id": "omacom.elsewhen",
+          "zones": "Moscow|Europe/Moscow, Tokyo|Asia/Tokyo, Honolulu|Pacific/Honolulu, Los Angeles|America/Los_Angeles, New York|America/New_York",
+          "units": "C"
+        },
+        {
           "format": "HH:mm",
           "formatAlt": "d MMMM 'W'ww yyyy",
           "id": "omarchy.clock",
