@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.ferc10110.fresh-tube",
+  "name": "Fresh Tube",
+  "version": "1.3.2",
+  "author": "Fernando Cancro",
+  "license": "MIT",
+  "description": "The latest unseen video of the YouTube channels you pick, one click from the bar, played in mpv.",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "BarWidget.qml" },
+  "barWidget": {
+    "displayName": "Fresh Tube",
+    "description": "New videos from your chosen YouTube channels",
+    "category": "Media",
+    "aliases": ["youtube", "fresh-tube", "videos"],
+    "allowMultiple": false,
+    "defaultSection": "left",
+    "defaults": { "playerCommand": "mpv", "fallbackCommand": "chromium", "refreshMinutes": 15 },
+    "schema": [
+      { "key": "playerCommand", "type": "string", "label": "Player command" },
+      { "key": "fallbackCommand", "type": "string", "label": "Fallback player when mpv fails" },
+      { "key": "refreshMinutes", "type": "number", "label": "Refresh every (minutes)" }
+    ]
+  }
+}

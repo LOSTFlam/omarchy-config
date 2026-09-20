@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+ <link rel="self" href="http://www.youtube.com/feeds/videos.xml?channel_id=UCXuqSBlHAE6Xw-yeJA0Tunw"/>
+ <id>yt:channel:XuqSBlHAE6Xw-yeJA0Tunw</id>
+ <yt:channelId>XuqSBlHAE6Xw-yeJA0Tunw</yt:channelId>
+ <title>Example Channel</title>
+ <published>2008-11-25T00:46:52+00:00</published>
+ <entry>
+  <id>yt:video:older111111</id>
+  <yt:videoId>older111111</yt:videoId>
+  <yt:channelId>UCXuqSBlHAE6Xw-yeJA0Tunw</yt:channelId>
+  <title>Older video</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=older111111"/>
+  <published>2026-09-10T10:00:00+00:00</published>
+  <media:group>
+   <media:title>Older video</media:title>
+   <media:thumbnail url="https://i.ytimg.com/vi/older111111/hqdefault.jpg" width="480" height="360"/>
+  </media:group>
+ </entry>
+ <entry>
+  <id>yt:video:newest22222</id>
+  <yt:videoId>newest22222</yt:videoId>
+  <yt:channelId>UCXuqSBlHAE6Xw-yeJA0Tunw</yt:channelId>
+  <title>Newest video</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=newest22222"/>
+  <published>2026-09-15T17:00:03+00:00</published>
+  <media:group>
+   <media:title>Newest video</media:title>
+   <media:thumbnail url="https://i.ytimg.com/vi/newest22222/hqdefault.jpg" width="480" height="360"/>
+  </media:group>
+ </entry>
+ <entry>
+  <id>yt:video:middle33333</id>
+  <yt:videoId>middle33333</yt:videoId>
+  <yt:channelId>UCXuqSBlHAE6Xw-yeJA0Tunw</yt:channelId>
+  <title>Middle video</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=middle33333"/>
+  <published>2026-09-12T08:30:00+00:00</published>
+  <media:group>
+   <media:title>Middle video</media:title>
+   <media:thumbnail url="https://i.ytimg.com/vi/middle33333/hqdefault.jpg" width="480" height="360"/>
+  </media:group>
+ </entry>
+</feed>

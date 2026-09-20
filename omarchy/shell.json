@@ -5,7 +5,8 @@
       "center": [
         {
           "id": "ryrobes.beatbar",
-          "mode": "Aurora"
+          "mode": "Aurora",
+          "gain": 170
         },
         {
           "audioQuality": "320 kbps",
@@ -35,8 +36,7 @@
         },
         {
           "id": "omacom.elsewhen",
-          "zones": "Moscow|Europe/Moscow, Tokyo|Asia/Tokyo, Honolulu|Pacific/Honolulu, Los Angeles|America/Los_Angeles, New York|America/New_York",
-          "units": "C"
+          "zones": "Moscow|Europe/Moscow, Tokyo|Asia/Tokyo, Honolulu|Pacific/Honolulu, Los Angeles|America/Los_Angeles, New York|America/New_York"
         },
         {
           "format": "HH:mm",
@@ -62,13 +62,14 @@
           "id": "io.github.anooplamba.workspace-preview"
         },
         {
-          "id": "akitaonrails.ai-usagebar"
-        },
-        {
           "id": "gladimdim.config-sync"
         },
         {
-          "id": "agx.screen-time"
+          "id": "akitaonrails.ai-usagebar",
+          "lastSelectedEntryId": "openrouter",
+          "showAll": false,
+          "showProvider": true,
+          "showValue": true
         }
       ],
       "right": [
@@ -80,6 +81,9 @@
         },
         {
           "id": "alexzeitler.ytdlp"
+        },
+        {
+          "id": "io.github.ferc10110.fresh-tube"
         },
         {
           "id": "co.klair.wallarchy"
