@@ -1,0 +1,25 @@
+{
+  "key": "3bdc71cc60b43ee8eff447fef474186b19dd9e053765ba0d6b0d9367396ab932",
+  "repo": "https://github.com/example/orbitalwidgets",
+  "commit": "1111111111111111111111111111111111111111",
+  "path": "README.md",
+  "body": "orbitalwidgets adds a compact workspace switcher and keyboard-driven launcher to the desktop. open its settings to choose the bar position, configure shortcuts, and select which workspaces appear. all settings stay on this computer. this fictional plugin is used only for offline search-pack integration tests.",
+  "state": "indexed",
+  "version": 1,
+  "truncated": false,
+  "license": "MIT",
+  "sourceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "reason": "licensed",
+  "sourceLicenseText": "MIT License\n\nCopyright (c) 2026 Fictional Orbitalwidgets Contributors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+  "sourceLicensePath": "LICENSE",
+  "sourceLicenseSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "licenseEvidenceUrl": "https://api.github.com/repos/example/orbitalwidgets/license?ref=1111111111111111111111111111111111111111",
+  "modifications": "README converted to normalized plain search text; may be truncated.",
+  "sourceNotices": [
+    {
+      "path": "AUTHORS",
+      "text": "Fictional Orbitalwidgets Contributors\nOriginal spelling and case retained for attribution.\n",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ]
+}

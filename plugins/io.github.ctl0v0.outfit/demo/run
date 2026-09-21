@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fixture="$root/demo/fixtures/example.json"
+
+python3 -m json.tool "$fixture" >/dev/null
+python3 "$root/demo/fixture_demo.py" "$fixture"

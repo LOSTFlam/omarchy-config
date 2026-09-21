@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "org.example.outfit-continuity-probe",
+  "name": "Fictional Continuity Probe",
+  "version": "1.0.0",
+  "author": "VM integration fixture",
+  "license": "MIT",
+  "description": "Disposable panel and widget birth-token probe.",
+  "kinds": ["panel", "bar-widget"],
+  "entryPoints": {"panel": "Panel.qml", "barWidget": "Widget.qml"},
+  "barWidget": {"defaultSection": "right", "allowMultiple": false, "defaults": {}, "schema": []}
+}

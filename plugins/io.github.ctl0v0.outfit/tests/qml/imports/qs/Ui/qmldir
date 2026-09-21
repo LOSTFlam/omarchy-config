@@ -1,0 +1,9 @@
+module qs.Ui
+BorderSurface 1.0 BorderSurface.qml
+Button 1.0 Button.qml
+TextField 1.0 TextField.qml
+Dropdown 1.0 Dropdown.qml
+Toggle 1.0 Toggle.qml
+ToggleSwitch 1.0 ToggleSwitch.qml
+PanelSeparator 1.0 PanelSeparator.qml
+ConfirmDialog 1.0 ConfirmDialog.qml

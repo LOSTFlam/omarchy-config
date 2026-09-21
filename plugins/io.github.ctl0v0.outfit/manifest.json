@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.ctl0v0.outfit",
+  "name": "Outfit",
+  "version": "0.3.2",
+  "author": "ctl0v0",
+  "license": "MIT",
+  "description": "Discover, preview, and manage Omarchy plugins with setup-aware suggestions and searchable marketplace browsing.",
+  "keepLoaded": true,
+  "kinds": [
+    "service",
+    "bar-widget",
+    "panel"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml",
+    "panel": "ui/OutfitApp.qml"
+  },
+  "barWidget": {
+    "displayName": "Outfit",
+    "description": "Discover useful plugins, browse the marketplace, and manage your Omarchy setup.",
+    "category": "Other",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {},
+    "schema": []
+  }
+}

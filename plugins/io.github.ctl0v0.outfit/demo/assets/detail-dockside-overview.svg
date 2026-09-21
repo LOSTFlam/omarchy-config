@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title description">
+  <title id="title">Dockside — a home in your bar</title>
+  <desc id="description">Fictional desktop illustration. A notes window sits beside a compact Dockside popover with a project, pinned notes, and a focus timer. All text and activity are invented.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#253d40"/>
+      <stop offset="1" stop-color="#14282e"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#355b5c"/>
+      <stop offset="1" stop-color="#203a41"/>
+    </linearGradient>
+    <clipPath id="desktop"><rect width="1440" height="900" rx="8"/></clipPath>
+  </defs>
+  <g clip-path="url(#desktop)">
+    <path fill="url(#sky)" d="M0 0h1440v900H0z"/>
+    <circle cx="1080" cy="338" r="179" fill="#c8bc96" opacity=".78"/>
+    <path d="M0 485C219 430 312 583 533 540s340-159 527-92 217 55 380 19v433H0Z" fill="#446565"/>
+    <path d="M0 628c233-127 370-73 560-29s365-98 535-87 246 102 345 43v345H0Z" fill="url(#water)"/>
+    <path d="M0 790c237-128 436 29 673-25s425-99 767-15v150H0Z" fill="#182d33"/>
+    <g fill="none" stroke="#9cbbaf" opacity=".14" stroke-width="2">
+      <path d="M37 712c218-90 328 8 566-21s425-108 777-20"/>
+      <path d="M19 736c218-90 328 8 566-21s425-108 777-20"/>
+      <path d="M1 760c218-90 328 8 566-21s425-108 777-20"/>
+    </g>
+    <!-- The shell bar is deliberately visible around the product. -->
+    <path fill="#111c21" d="M0 0h1440v52H0z"/>
+    <path stroke="#42565a" d="M0 51.5h1440"/>
+    <g font-family="monospace" font-size="15" fill="#bcc9c3">
+      <g stroke="#a7c6b5" stroke-width="2" fill="none">
+        <path d="m24 31 9-13 9 13M27 27h12"/>
+      </g>
+      <rect x="63" y="10" width="35" height="32" rx="4" fill="#30484a"/>
+      <text x="80" y="32" text-anchor="middle" fill="#dce9df">1</text>
+      <text x="117" y="32">2</text><text x="151" y="32">3</text><text x="185" y="32">4</text>
+      <text x="254" y="32" fill="#809792">Harbor atlas</text>
+      <text x="720" y="32" text-anchor="middle">Thu 17 · 09:41</text>
+      <rect x="1090" y="9" width="159" height="34" rx="4" fill="#30484a"/>
+      <g stroke="#b5d0bc" stroke-width="1.6" fill="none">
+        <path d="M1106 20h16v13h-16zM1106 24h16M1111 17v6M1117 17v6"/>
+      </g>
+      <text x="1135" y="32" fill="#dce9df">Dockside</text>
+      <text x="1268" y="32">EN</text>
+      <path d="M1310 22h5l6-5v19l-6-5h-5z" fill="none" stroke="#bcc9c3" stroke-width="1.5"/>
+      <rect x="1340" y="20" width="24" height="13" rx="2" fill="none" stroke="#bcc9c3" stroke-width="1.5"/>
+      <path d="M1343 23h16v7h-16zM1365 24h3v5h-3z" fill="#a7c6b5"/>
+      <text x="1380" y="32" font-size="13">84</text>
+    </g>
+    <!-- A fictional work window gives the popover scale and context. -->
+    <rect x="67" y="143" width="763" height="617" rx="7" fill="#09171c" opacity=".28"/>
+    <rect x="60" y="134" width="763" height="617" rx="6" fill="#1c2b30" stroke="#526968"/>
+    <path d="M66 134h751q6 0 6 6v43H60v-43q0-6 6-6" fill="#25363a"/>
+    <g font-family="monospace" font-size="14" fill="#aebfb8">
+      <text x="82" y="164">Fieldnotes</text><text x="440" y="164" text-anchor="middle" fill="#7f9690">harbor-atlas / overview.md</text>
+      <path d="M750 159h10m18-4 10 10m0-10-10 10" stroke="#8aa09a" stroke-width="1.5"/>
+      <path d="M60 183h763M243 183v568" stroke="#354b4e"/>
+      <text x="84" y="223" font-size="12" fill="#7f9690" letter-spacing="2">HARBOR ATLAS</text>
+      <rect x="72" y="243" width="159" height="34" rx="3" fill="#30484a"/>
+      <text x="85" y="265" fill="#dce9df">Overview</text>
+      <text x="85" y="307">Research</text><text x="85" y="349">Map sketches</text><text x="85" y="391">Field notes</text>
+      <path d="M84 426h122" stroke="#354b4e"/>
+      <text x="85" y="460" fill="#7f9690">+ New note</text>
+      <text x="283" y="237" font-size="12" letter-spacing="2" fill="#a7c6b5">FIELD GUIDE / 001</text>
+      <text x="283" y="293" font-size="32" fill="#e0e6db">A place to begin.</text>
+      <text x="283" y="334" fill="#aebfb8">An atlas of imaginary places,</text>
+      <text x="283" y="360" fill="#aebfb8">built one quiet morning at a time.</text>
+      <path d="M283 393h489" stroke="#3d5355"/>
+      <text x="283" y="436" font-size="18" fill="#dce9df">Today’s small steps</text>
+      <g fill="none" stroke="#8caaa0" stroke-width="1.5">
+        <rect x="284" y="462" width="15" height="15" rx="2"/>
+        <path d="m287 469 4 4 7-9"/>
+        <rect x="284" y="505" width="15" height="15" rx="2"/>
+        <rect x="284" y="548" width="15" height="15" rx="2"/>
+      </g>
+      <text x="314" y="475" fill="#7f9690">Gather the first observations</text>
+      <text x="314" y="518">Sketch the north shore</text>
+      <text x="314" y="561">Leave a note for tomorrow</text>
+      <rect x="283" y="604" width="490" height="84" rx="4" fill="#253b3e"/>
+      <path d="M283 608v76" stroke="#a7c6b5" stroke-width="3"/>
+      <text x="305" y="635" fill="#c3d2c5">Keep the useful things close.</text>
+      <text x="305" y="661" fill="#8fa69c">Give everything else some room.</text>
+      <text x="81" y="730" fill="#718b86" font-size="12">3 notes</text>
+      <text x="793" y="730" text-anchor="end" fill="#718b86" font-size="12">Markdown · Saved</text>
+    </g>
+    <!-- Dockside popover: modest corners, precise spacing, restrained color. -->
+    <rect x="942" y="86" width="446" height="539" rx="7" fill="#09171c" opacity=".3"/>
+    <rect x="935" y="77" width="446" height="539" rx="6" fill="#17262b" stroke="#6c8880"/>
+    <g font-family="monospace" fill="#dce9df">
+      <text x="961" y="117" font-size="19" font-weight="bold">Dockside</text>
+      <text x="1355" y="117" text-anchor="end" font-size="12" fill="#91aaa0">YOUR DAY, CLOSE BY</text>
+      <path d="M959 141h398" stroke="#354b4e"/>
+      <text x="961" y="172" font-size="11" letter-spacing="2" fill="#91aaa0">CURRENT PROJECT</text>
+      <rect x="959" y="189" width="398" height="87" rx="4" fill="#293f42"/>
+      <rect x="975" y="208" width="48" height="48" rx="4" fill="#3b5956"/>
+      <path d="m985 241 13-22 14 22m-23-7h19" fill="none" stroke="#c2d4ba" stroke-width="2"/>
+      <text x="1040" y="223" font-size="17">Harbor atlas</text>
+      <text x="1040" y="247" font-size="12" fill="#9cb3a7">Workspace 01 · 3 notes</text>
+      <path d="m1324 224 7 8-7 8" fill="none" stroke="#b7cdbd" stroke-width="1.6"/>
+      <text x="961" y="311" font-size="11" letter-spacing="2" fill="#91aaa0">PINNED FOR LATER</text>
+      <g font-size="14">
+        <circle cx="969" cy="339" r="3" fill="#a7c6b5"/><text x="986" y="344">North shore sketches</text>
+        <circle cx="969" cy="377" r="3" fill="#a7c6b5"/><text x="986" y="382">The next good idea</text>
+      </g>
+      <path d="M959 409h398" stroke="#354b4e"/>
+      <text x="961" y="444" font-size="11" letter-spacing="2" fill="#91aaa0">A LITTLE ROOM TO FOCUS</text>
+      <text x="960" y="494" font-size="36" fill="#c1d5bd">25:00</text>
+      <rect x="1203" y="458" width="154" height="43" rx="4" fill="#b6cdb5"/>
+      <text x="1280" y="485" text-anchor="middle" font-size="14" fill="#1b3030">Start focus</text>
+      <path d="M959 530h398" stroke="#354b4e"/>
+      <text x="961" y="568" font-size="12" fill="#91aaa0">One project. One small next step.</text>
+      <text x="1356" y="592" text-anchor="end" font-size="10" fill="#627f79">FICTIONAL PREVIEW</text>
+    </g>
+    <g font-family="monospace" fill="#b1c4b7" font-size="12" letter-spacing="2">
+      <text x="60" y="853">DOCKSIDE / 01</text>
+      <text x="1381" y="853" text-anchor="end" opacity=".75">FICTIONAL DESKTOP · DESIGN PREVIEW</text>
+    </g>
+  </g>
+</svg>

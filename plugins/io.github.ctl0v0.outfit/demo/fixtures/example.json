@@ -1,0 +1,90 @@
+{
+  "fixture": "io.github.ctl0v0.outfit-dock-workstation",
+  "catalog": {
+    "generatedAt": "2026-01-15T12:00:00Z",
+    "plugins": [
+      {
+        "id": "example.dock-helper",
+        "name": "Dock Helper",
+        "description": "Controls USB-C and Thunderbolt docking stations, including MIDI controllers.",
+        "installNote": "Connect the fictional dock before opening the widget.",
+        "author": "Fixture Author",
+        "version": "1.2.0",
+        "category": "Hardware",
+        "tags": ["dock", "usb-c", "thunderbolt"],
+        "kind": "bar-widget",
+        "status": "active",
+        "sourceType": "community",
+        "repo": "https://github.com/example/dock-helper",
+        "listingValidatedCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verificationCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "verificationStatus": "verified",
+        "verificationSnapshotStatus": "verified",
+        "verificationCoverage": "full",
+        "installAvailable": true,
+        "stars": 42
+      },
+      {
+        "id": "example.workspace-map",
+        "name": "Workspace Map",
+        "description": "Shows workspaces across multiple monitors.",
+        "author": "Fixture Author",
+        "version": "0.8.0",
+        "category": "Desktop",
+        "tags": ["multi-monitor", "workspace"],
+        "kind": "bar-widget",
+        "status": "active",
+        "sourceType": "community",
+        "repo": "https://github.com/example/workspace-map",
+        "listingValidatedCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "verificationCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "verificationStatus": "verified",
+        "verificationSnapshotStatus": "verified",
+        "verificationCoverage": "full",
+        "installAvailable": true,
+        "stars": 17
+      },
+      {
+        "id": "example.quiet-hours",
+        "name": "Quiet Hours",
+        "description": "A fictional do-not-disturb schedule.",
+        "author": "Fixture Author",
+        "version": "0.3.0",
+        "category": "Productivity",
+        "tags": ["focus"],
+        "kind": "service",
+        "status": "active",
+        "sourceType": "community",
+        "repo": "https://github.com/example/quiet-hours",
+        "listingValidatedCommit": "cccccccccccccccccccccccccccccccccccccccc",
+        "verificationCommit": "",
+        "verificationStatus": "unverified",
+        "verificationSnapshotStatus": "unverified",
+        "verificationCoverage": "none",
+        "installAvailable": true,
+        "stars": 9
+      }
+    ]
+  },
+  "profile": [
+    {
+      "id": "hardware-dock",
+      "label": "Hardware dock",
+      "detail": "Attached USB product",
+      "terms": [
+        {"value": "usb-c dock", "weight": 28},
+        {"value": "thunderbolt dock", "weight": 28},
+        {"value": "docking station", "weight": 28}
+      ]
+    },
+    {
+      "id": "multi-monitor",
+      "label": "2 displays",
+      "detail": "Active Hyprland outputs",
+      "terms": [
+        {"value": "multi-monitor", "weight": 20},
+        {"value": "multiple monitors", "weight": 20}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title description">
+  <title id="title">Dockside — a little room to focus</title>
+  <desc id="description">Fictional desktop illustration. A small focus popover sits under Dockside in the host bar while a writing window and a warm abstract landscape remain visible. The timer is invented and static.</desc>
+  <defs>
+    <linearGradient id="dusk" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#575750"/><stop offset=".65" stop-color="#343f3e"/><stop offset="1" stop-color="#263536"/>
+    </linearGradient>
+    <linearGradient id="hill" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#948267"/><stop offset="1" stop-color="#636654"/>
+    </linearGradient>
+    <clipPath id="desktop"><rect width="1440" height="900" rx="8"/></clipPath>
+  </defs>
+  <g clip-path="url(#desktop)">
+    <path fill="url(#dusk)" d="M0 0h1440v900H0z"/>
+    <circle cx="1067" cy="451" r="228" fill="#c2b58c" opacity=".6"/>
+    <path d="M0 557c288-209 468-164 671-69s291-71 441-22 226 69 328 22v412H0Z" fill="url(#hill)"/>
+    <path d="M0 724c199-105 311-191 535-116s219 150 465 61 333-75 440-38v269H0Z" fill="#3c514b"/>
+    <path d="M0 790c208 67 390-59 548-17s374 87 524-18 270-86 368-39v184H0Z" fill="#263c3b"/>
+    <g fill="none" stroke="#c0c7a5" opacity=".13" stroke-width="2">
+      <path d="M21 777c162 19 362-89 516-29s361 87 529-34 256-70 349-42"/>
+      <path d="M21 795c162 19 362-89 516-29s361 87 529-34 256-70 349-42"/>
+      <path d="M21 813c162 19 362-89 516-29s361 87 529-34 256-70 349-42"/>
+    </g>
+    <path fill="#192522" d="M0 0h1440v52H0z"/>
+    <path stroke="#536158" d="M0 51.5h1440"/>
+    <g font-family="monospace" font-size="15" fill="#c7cfc0">
+      <path d="m24 31 9-13 9 13M27 27h12" fill="none" stroke="#c2ceaa" stroke-width="2"/>
+      <text x="74" y="32">1</text><text x="111" y="32">2</text>
+      <rect x="139" y="10" width="35" height="32" rx="4" fill="#3a4c42"/>
+      <text x="156" y="32" text-anchor="middle" fill="#e5e7d7">3</text><text x="192" y="32">4</text>
+      <text x="254" y="32" fill="#97a891">Sunday letters</text>
+      <text x="720" y="32" text-anchor="middle">Thu 17 · 16:08</text>
+      <rect x="1058" y="9" width="236" height="34" rx="4" fill="#3a4c42"/>
+      <circle cx="1079" cy="26" r="8" fill="none" stroke="#c2ceaa" stroke-width="1.5"/>
+      <path d="M1079 20v6l4 2" fill="none" stroke="#c2ceaa" stroke-width="1.5"/>
+      <text x="1098" y="32" fill="#e0e4cf">Dockside · 18:42</text>
+      <text x="1321" y="32" fill="#a2b197">EN · 72%</text>
+    </g>
+    <!-- A quiet editor stays in the foreground; the timer occupies little room. -->
+    <rect x="86" y="157" width="785" height="582" rx="7" fill="#13251f" opacity=".25"/>
+    <rect x="79" y="148" width="785" height="582" rx="6" fill="#22302b" stroke="#71806a"/>
+    <path d="M85 148h773q6 0 6 6v43H79v-43q0-6 6-6" fill="#2d3d33"/>
+    <g font-family="monospace" font-size="14">
+      <text x="103" y="179" fill="#cad2bd">Letters</text>
+      <text x="479" y="179" text-anchor="middle" fill="#a0af94">a-note-for-a-slower-day.md</text>
+      <path d="M791 174h10m18-4 10 10m0-10-10 10" stroke="#a0af94" stroke-width="1.5"/>
+      <path d="M79 197h785" stroke="#445542"/>
+      <text x="156" y="265" font-size="11" letter-spacing="3" fill="#abb99b">SUNDAY LETTERS / DRAFT 04</text>
+      <text x="155" y="327" font-size="31" fill="#e4e6d4">A note for a slower day.</text>
+      <g font-size="16" fill="#bac7ac">
+        <text x="156" y="385">There is a small kind of progress</text>
+        <text x="156" y="415">in giving one thing your attention.</text>
+        <text x="156" y="475">A paragraph. A sketch. A cup of tea</text>
+        <text x="156" y="505">that you remember to drink while warm.</text>
+        <text x="156" y="565">Today, that is enough.</text>
+      </g>
+      <path d="M369 548v21" stroke="#c2ceaa" stroke-width="2"/>
+      <path d="M156 623h627" stroke="#445542"/>
+      <text x="156" y="656" font-size="12" fill="#8ea082">No hurry. You have a little room.</text>
+      <text x="104" y="709" font-size="12" fill="#8ea082">43 words</text>
+      <text x="840" y="709" text-anchor="end" font-size="12" fill="#8ea082">Saved locally · Fictional draft</text>
+    </g>
+    <!-- Compact focus mode, with the host bar visible above it. -->
+    <rect x="963" y="86" width="418" height="486" rx="7" fill="#15231e" opacity=".3"/>
+    <rect x="956" y="77" width="418" height="486" rx="6" fill="#1e2d27" stroke="#839078"/>
+    <g font-family="monospace" fill="#e0e4cf">
+      <text x="982" y="117" font-size="19" font-weight="bold">A little room to focus</text>
+      <text x="982" y="147" font-size="12" fill="#a8b89b">Dockside · Sunday letters</text>
+      <path d="M982 172h366" stroke="#465842"/>
+      <text x="1165" y="211" text-anchor="middle" font-size="11" letter-spacing="2" fill="#a8b89b">FOCUS SESSION</text>
+      <circle cx="1165" cy="303" r="69" fill="none" stroke="#3a4e3f" stroke-width="5"/>
+      <path d="M1165 234a69 69 0 1 1-69 69" fill="none" stroke="#bdcaa1" stroke-width="5" stroke-linecap="round"/>
+      <text x="1165" y="307" text-anchor="middle" font-size="32" fill="#e0e4cf">18:42</text>
+      <text x="1165" y="330" text-anchor="middle" font-size="11" fill="#a8b89b">OF 25 MINUTES</text>
+      <rect x="982" y="397" width="176" height="42" rx="4" fill="#bcc9a6"/>
+      <text x="1070" y="424" text-anchor="middle" font-size="14" fill="#253629">Pause</text>
+      <rect x="1172" y="397" width="176" height="42" rx="4" fill="#2b3e30" stroke="#617358"/>
+      <text x="1260" y="424" text-anchor="middle" font-size="14">Finish</text>
+      <path d="M982 465h366" stroke="#465842"/>
+      <text x="982" y="496" font-size="12" fill="#a8b89b">Keep writing. We’ll keep the time.</text>
+      <text x="982" y="524" font-size="11" fill="#849978">2 sessions today · Fictional activity</text>
+    </g>
+    <g font-family="monospace" fill="#cad2bb" font-size="12" letter-spacing="2">
+      <text x="60" y="853">DOCKSIDE / 03</text>
+      <text x="1381" y="853" text-anchor="end" opacity=".75">FICTIONAL DESKTOP · DESIGN PREVIEW</text>
+    </g>
+  </g>
+</svg>

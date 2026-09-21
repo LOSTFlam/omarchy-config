@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONDONTWRITEBYTECODE=1
+mode="${1:---portable}"
+case "$mode" in --portable|--python-only|--require-omarchy) ;; *) exit 2 ;; esac
+python3 "$root/scripts/validate_manifest.py" "$root"
+python3 -B "$root/scripts/check_python.py"
+python3 -m unittest discover -t "$root" -s "$root/tests" -p 'test_*.py'
+bash -n "$root/demo/run"
+python3 -m json.tool "$root/demo/fixtures/example.json" >/dev/null
+python3 "$root/demo/fixture_demo.py" "$root/demo/fixtures/example.json" >/dev/null
+if command -v ffmpeg >/dev/null 2>&1 && [[ "$mode" != --python-only && ! -e "$root/test-results/media.webm" ]]; then
+  mkdir -p "$root/test-results"
+  ffmpeg -nostdin -v error -y -f lavfi -i 'color=c=red:s=160x90:r=5' \
+    -t 3 -an -c:v libvpx "$root/test-results/media.webm"
+fi
+
+qmlformat="/usr/lib/qt6/bin/qmlformat"
+if [[ "$mode" != --python-only ]]; then
+  [[ -x "$qmlformat" ]] || { printf 'Qt QML tools are required. Use --python-only for explicitly partial checks.\n' >&2; exit 1; }
+  "$qmlformat" "$root/Service.qml" >/dev/null
+  "$qmlformat" "$root/BarWidget.qml" >/dev/null
+  "$qmlformat" "$root/ThumbnailLoader.qml" >/dev/null
+  "$qmlformat" "$root/BackgroundWorker.qml" >/dev/null
+  "$qmlformat" "$root/BoundedJsonParser.qml" >/dev/null
+  "$qmlformat" "$root/ui/OutfitApp.qml" >/dev/null
+  "$qmlformat" "$root/ui/OutfitIcon.qml" >/dev/null
+  "$qmlformat" "$root/ui/DiagnosticsPane.qml" >/dev/null
+  "$qmlformat" "$root/ui/ReadmeIndexStatus.qml" >/dev/null
+  "$qmlformat" "$root/ui/BackgroundActivity.qml" >/dev/null
+  "$qmlformat" "$root/ui/InterestsManager.qml" >/dev/null
+  "$qmlformat" "$root/ui/PluginDetailPage.qml" >/dev/null
+  "$qmlformat" "$root/ui/UpdatesPage.qml" >/dev/null
+  "$qmlformat" "$root/ui/ConfirmationDialog.qml" >/dev/null
+  "$qmlformat" "$root/demo/DetailPrototype.qml" >/dev/null
+  "$qmlformat" "$root/ui/OptionalVideo.qml" >/dev/null
+  "$qmlformat" "$root/ui/DemoVideo.qml" >/dev/null
+fi
+
+qmltestrunner="/usr/lib/qt6/bin/qmltestrunner"
+if [[ "$mode" != --python-only ]]; then
+  [[ -x "$qmltestrunner" ]] || { printf 'qmltestrunner is required for the QML lifecycle checks.\n' >&2; exit 1; }
+  QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software "$qmltestrunner" \
+    -input "$root/tests/qml" -import "$root/tests/qml/imports" -o -,txt
+fi
+
+if command -v omarchy >/dev/null 2>&1; then
+  omarchy plugin validate "$root"
+elif [[ "$mode" == --require-omarchy ]]; then
+  printf 'Native Omarchy validation is required for this gate.\n' >&2
+  exit 1
+else
+  printf 'Native Omarchy validation: unrun (Omarchy unavailable).\n'
+fi
+
+printf 'Selected checks passed (%s).\n' "$mode"

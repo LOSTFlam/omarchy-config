@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Outfit managed icon -->
+  <title>Outfit</title>
+  <desc>A toolbox with a raised handle and central latch.</desc>
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="#172b3a"/>
+  <g transform="translate(8 8) scale(2)" stroke="#56d7c4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 7V5Q8 3 10 3H14Q16 3 16 5V7" fill="none"/>
+    <path d="M4 7H20Q22 7 22 9V19Q22 21 20 21H4Q2 21 2 19V9Q2 7 4 7Z" fill="#23434c"/>
+    <path d="M2 12H10M14 12H22" fill="none"/>
+    <rect x="10" y="11" width="4" height="4" fill="#172b3a" stroke="#e5f3f4"/>
+  </g>
+</svg>

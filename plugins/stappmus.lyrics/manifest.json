@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "id": "stappmus.lyrics",
+  "name": "Omasing",
+  "version": "0.1.5",
+  "author": "stappmus",
+  "license": "MIT",
+  "description": "I was tired of being bombarded with ads every time I looked up lyrics, so I made this fast, cross-checked lyric popup for Omarchy.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "activation": "on-demand",
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Omasing",
+    "description": "Search songs and read cross-checked lyrics with adjustable auto-scroll.",
+    "category": "Media",
+    "aliases": [
+      "lyrics",
+      "song words",
+      "sing"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "center",
+    "defaults": {
+      "autoScrollLinesPerSecond": "1"
+    },
+    "schema": [
+      {
+        "key": "autoScrollLinesPerSecond",
+        "type": "enum",
+        "label": "Default auto-scroll speed",
+        "options": [
+          "0.25",
+          "0.5",
+          "0.75",
+          "1",
+          "1.25",
+          "1.5",
+          "1.75",
+          "2",
+          "2.25",
+          "2.5",
+          "2.75",
+          "3"
+        ],
+        "defaultValue": "1",
+        "description": "Rendered lyric lines per second. It can also be adjusted while reading lyrics."
+      }
+    ]
+  }
+}

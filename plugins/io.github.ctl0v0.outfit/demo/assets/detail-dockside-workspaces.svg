@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title description">
+  <title id="title">Dockside — pick up where you left off</title>
+  <desc id="description">Fictional desktop illustration showing Dockside in the center of a host bar. Its project switcher floats over an invented map-design workspace.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#34444c"/><stop offset="1" stop-color="#1d3038"/>
+    </linearGradient>
+    <clipPath id="desktop"><rect width="1440" height="900" rx="8"/></clipPath>
+    <clipPath id="map"><rect x="940" y="262" width="333" height="419" rx="3"/></clipPath>
+  </defs>
+  <g clip-path="url(#desktop)">
+    <path fill="url(#paper)" d="M0 0h1440v900H0z"/>
+    <path d="m0 495 620-443h342L0 744Z" fill="#728581" opacity=".16"/>
+    <path d="M535 900 1440 242v192L797 900Z" fill="#a3b5a2" opacity=".11"/>
+    <path d="m1126 900 314-226v226Z" fill="#a3b5a2" opacity=".08"/>
+    <g fill="none" stroke="#8da59c" opacity=".14">
+      <path d="M0 631 803 52M0 650 829 52M0 669 855 52"/>
+      <path d="m616 900 824-598m-798 598 798-579m-772 579 772-560"/>
+    </g>
+    <path fill="#142027" d="M0 0h1440v52H0z"/>
+    <path stroke="#465b60" d="M0 51.5h1440"/>
+    <g font-family="monospace" font-size="15" fill="#bdccc8">
+      <path d="m24 31 9-13 9 13M27 27h12" fill="none" stroke="#b0c8b6" stroke-width="2"/>
+      <text x="74" y="32">1</text>
+      <rect x="101" y="10" width="35" height="32" rx="4" fill="#35494e"/>
+      <text x="118" y="32" text-anchor="middle" fill="#e0e8dd">2</text><text x="153" y="32">3</text><text x="187" y="32">4</text>
+      <text x="254" y="32" fill="#839d99">Shoreline studies</text>
+      <rect x="617" y="9" width="208" height="34" rx="4" fill="#35494e"/>
+      <path d="M634 20h15v13h-15zM634 24h15" stroke="#b0c8b6" fill="none" stroke-width="1.5"/>
+      <text x="663" y="32" fill="#e0e8dd">Dockside · 3</text>
+      <text x="1122" y="32">Thu 17 · 10:12</text>
+      <text x="1330" y="32" fill="#95ada4">EN · 81%</text>
+    </g>
+    <!-- A second project is visible behind the centered switcher. -->
+    <rect x="106" y="214" width="1239" height="534" rx="7" fill="#0e1c24" opacity=".3"/>
+    <rect x="99" y="205" width="1239" height="534" rx="6" fill="#202f37" stroke="#5d7274"/>
+    <path d="M105 205h1227q6 0 6 6v43H99v-43q0-6 6-6" fill="#2a3b43"/>
+    <g font-family="monospace" font-size="14">
+      <text x="122" y="236" fill="#c4d1c8">Canvas</text>
+      <text x="1200" y="236" text-anchor="end" fill="#96aaa4">shoreline-study.svg</text>
+      <path d="M1269 231h10m18-4 10 10m0-10-10 10" stroke="#96aaa4" stroke-width="1.5"/>
+      <path d="M99 254h1239M286 254v485" stroke="#42565c"/>
+      <text x="125" y="294" fill="#8ca49e" font-size="11" letter-spacing="2">LAYERS</text>
+      <rect x="111" y="311" width="161" height="34" rx="3" fill="#354b50"/>
+      <text x="129" y="333" fill="#dbe6d9">North shore</text>
+      <text x="129" y="374" fill="#91aba2">Contours</text>
+      <text x="129" y="415" fill="#91aba2">Field marks</text>
+      <text x="129" y="456" fill="#91aba2">Paper</text>
+      <text x="125" y="688" fill="#809993" font-size="12">4 layers · 100%</text>
+      <rect x="940" y="262" width="333" height="419" rx="3" fill="#c4c8ad"/>
+      <g clip-path="url(#map)">
+        <path d="M1105 239c-97 60 31 155-48 220s54 151-24 246h301V239Z" fill="#688d84"/>
+        <path d="M1150 239c-97 60 31 155-48 220s54 151-24 246" fill="none" stroke="#486e6b" stroke-width="2"/>
+        <g fill="none" stroke="#58766a" stroke-width="1.5" opacity=".65">
+          <path d="M1075 231c-97 60 31 155-48 220s54 151-24 246"/>
+          <path d="M1055 224c-97 60 31 155-48 220s54 151-24 246"/>
+          <path d="M1035 217c-97 60 31 155-48 220s54 151-24 246"/>
+          <path d="M1015 210c-97 60 31 155-48 220s54 151-24 246"/>
+          <path d="M995 203c-97 60 31 155-48 220s54 151-24 246"/>
+        </g>
+        <path d="m1206 304 8-25 8 25-8-6Z" fill="#28494c"/>
+        <text x="1214" y="270" text-anchor="middle" fill="#28494c" font-size="11">N</text>
+        <circle cx="1069" cy="479" r="5" fill="#344f4e"/>
+        <text x="1120" y="622" fill="#28494c" font-size="10" letter-spacing="2">NORTH SHORE</text>
+        <path d="M1178 651h67m-67-4v8m67-8v8" stroke="#28494c"/>
+      </g>
+      <text x="1240" y="716" text-anchor="end" fill="#90a89f" font-size="12">An imaginary coastline</text>
+    </g>
+    <!-- Project picker, aligned to Dockside in the center of the host bar. -->
+    <rect x="446" y="85" width="557" height="560" rx="7" fill="#0a1820" opacity=".3"/>
+    <rect x="439" y="76" width="557" height="560" rx="6" fill="#192930" stroke="#789089"/>
+    <g font-family="monospace" fill="#dbe6d9">
+      <text x="466" y="117" font-size="19" font-weight="bold">Your projects</text>
+      <text x="969" y="116" text-anchor="end" font-size="12" fill="#92aca1">DOCKSIDE</text>
+      <text x="466" y="149" font-size="13" fill="#9ab1a6">Pick up where you left off.</text>
+      <rect x="465" y="176" width="505" height="43" rx="4" fill="#23373e" stroke="#48625f"/>
+      <circle cx="487" cy="195" r="6" fill="none" stroke="#9ab1a6" stroke-width="1.5"/>
+      <path d="m492 200 5 5" stroke="#9ab1a6" stroke-width="1.5"/>
+      <text x="513" y="203" font-size="13" fill="#8da69c">Find a project…</text>
+      <text x="950" y="202" text-anchor="end" font-size="11" fill="#829e94">/</text>
+      <text x="466" y="254" font-size="11" letter-spacing="2" fill="#92aca1">PINNED WORKSPACES</text>
+      <rect x="465" y="271" width="505" height="86" rx="4" fill="#304b4d" stroke="#829f8f"/>
+      <rect x="481" y="289" width="49" height="49" rx="4" fill="#48665c"/>
+      <path d="m490 323 8-18 8 11 7-8 8 15" fill="none" stroke="#ccdcc3" stroke-width="2"/>
+      <text x="548" y="306" font-size="17">Shoreline studies</text>
+      <text x="548" y="332" font-size="12" fill="#abc2b2">Workspace 02 · Here now</text>
+      <circle cx="944" cy="314" r="4" fill="#c0d5b9"/>
+      <rect x="465" y="369" width="505" height="86" rx="4" fill="#23373e"/>
+      <rect x="481" y="387" width="49" height="49" rx="4" fill="#374e53"/>
+      <path d="m491 421 14-24 14 24m-25-7h22" fill="none" stroke="#a6c0b2" stroke-width="2"/>
+      <text x="548" y="404" font-size="17">Harbor atlas</text>
+      <text x="548" y="430" font-size="12" fill="#91aa9f">Workspace 01 · 3 notes</text>
+      <text x="945" y="417" text-anchor="end" font-size="13" fill="#abc2b2">1</text>
+      <rect x="465" y="467" width="505" height="86" rx="4" fill="#23373e"/>
+      <rect x="481" y="485" width="49" height="49" rx="4" fill="#4b514b"/>
+      <path d="M495 495h21v28h-21zM499 502h13m-13 6h13m-13 6h9" fill="none" stroke="#c8c7a7" stroke-width="1.5"/>
+      <text x="548" y="502" font-size="17">Sunday letters</text>
+      <text x="548" y="528" font-size="12" fill="#91aa9f">Workspace 03 · A fresh draft</text>
+      <text x="945" y="515" text-anchor="end" font-size="13" fill="#abc2b2">3</text>
+      <path d="M465 575h505" stroke="#3b5358"/>
+      <text x="466" y="607" font-size="12" fill="#92aca1">↑ ↓ choose    Enter switch    Esc close</text>
+    </g>
+    <g font-family="monospace" fill="#b9c9bf" font-size="12" letter-spacing="2">
+      <text x="60" y="853">DOCKSIDE / 02</text>
+      <text x="1381" y="853" text-anchor="end" opacity=".75">FICTIONAL DESKTOP · DESIGN PREVIEW</text>
+    </g>
+  </g>
+</svg>

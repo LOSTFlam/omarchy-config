@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "touchtype",
+  "name": "Touch Typing Trainer",
+  "version": "2.0.0",
+  "author": "Anton Milman",
+  "license": "MIT",
+  "description": "Touch (Blind) typing in the age of AI, is hugely overrated, but if you want to go old-school and actually use a keyboard, you better be quick. Enjoy training Touch Typing using this plugin while your agent is writing your code.",
+  "kinds": [
+    "overlay",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "TouchType.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Touch Typing Trainer",
+    "description": "Level and streak indicator; click to open the trainer",
+    "category": "Productivity",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "id": "ninepointlabs.spotify",
+  "name": "Spotify",
+  "version": "0.1.0",
+  "author": "Ninepoint Labs",
+  "license": "MIT",
+  "description": "Spotify in the Omarchy bar — now-playing chip with album art, transport, volume and device controls, plus Search, Playlists, Audiobooks and Podcasts tabs backed by the Spotify Web API.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Spotify",
+    "description": "Now playing in the bar; click for album art, controls, your playlists, audiobooks, podcasts and search.",
+    "category": "Media",
+    "aliases": [
+      "spotify",
+      "music",
+      "podcasts",
+      "audiobooks"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "clientId": "",
+      "redirectPort": 8888,
+      "showTrack": true,
+      "maxLabelWidth": 180,
+      "defaultTab": "search"
+    },
+    "schema": [
+      {
+        "key": "clientId",
+        "type": "string",
+        "label": "Spotify app Client ID",
+        "defaultValue": ""
+      },
+      {
+        "key": "redirectPort",
+        "type": "integer",
+        "label": "Login redirect port (must match the app's redirect URI)",
+        "min": 1024,
+        "max": 65535,
+        "step": 1,
+        "defaultValue": 8888
+      },
+      {
+        "key": "showTrack",
+        "type": "boolean",
+        "label": "Show the current track next to the icon",
+        "defaultValue": true
+      },
+      {
+        "key": "maxLabelWidth",
+        "type": "integer",
+        "label": "Max width of the track label (px)",
+        "min": 60,
+        "max": 600,
+        "step": 10,
+        "defaultValue": 180
+      },
+      {
+        "key": "defaultTab",
+        "type": "enum",
+        "label": "Tab to open first",
+        "options": [
+          "search",
+          "playlists",
+          "books",
+          "podcasts"
+        ],
+        "defaultValue": "search"
+      }
+    ]
+  }
+}

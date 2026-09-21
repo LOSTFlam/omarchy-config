@@ -1,0 +1,258 @@
+{
+  "schema": 1,
+  "services": [
+    {
+      "id": "spotify",
+      "name": "Spotify",
+      "category": "Music & video",
+      "terms": ["spotify"]
+    },
+    {
+      "id": "youtube-music",
+      "name": "YouTube Music",
+      "category": "Music & video",
+      "terms": ["youtube music", "ytmusic"]
+    },
+    {
+      "id": "apple-music",
+      "name": "Apple Music",
+      "category": "Music & video",
+      "terms": ["apple music"]
+    },
+    {
+      "id": "plex",
+      "name": "Plex",
+      "category": "Music & video",
+      "terms": ["plex"]
+    },
+    {
+      "id": "jellyfin",
+      "name": "Jellyfin",
+      "category": "Music & video",
+      "terms": ["jellyfin"]
+    },
+    {
+      "id": "sonos",
+      "name": "Sonos",
+      "category": "Music & video",
+      "terms": ["sonos"]
+    },
+    {
+      "id": "discord",
+      "name": "Discord",
+      "category": "Chat & meetings",
+      "terms": ["discord", "vencord", "vesktop"]
+    },
+    {
+      "id": "slack",
+      "name": "Slack",
+      "category": "Chat & meetings",
+      "terms": ["slack"],
+      "excludePluginIds": ["io.github.joshferrara.quick-emoji"]
+    },
+    {
+      "id": "telegram",
+      "name": "Telegram",
+      "category": "Chat & meetings",
+      "terms": ["telegram"]
+    },
+    {
+      "id": "whatsapp",
+      "name": "WhatsApp",
+      "category": "Chat & meetings",
+      "terms": ["whatsapp"]
+    },
+    {
+      "id": "gmail",
+      "name": "Gmail",
+      "category": "Email & calendars",
+      "terms": ["gmail"]
+    },
+    {
+      "id": "outlook",
+      "name": "Outlook",
+      "category": "Email & calendars",
+      "terms": ["microsoft outlook", "outlook email"],
+      "includePluginIds": ["omamail"]
+    },
+    {
+      "id": "google-calendar",
+      "name": "Google Calendar",
+      "category": "Email & calendars",
+      "terms": ["google calendar"]
+    },
+    {
+      "id": "fastmail",
+      "name": "Fastmail",
+      "category": "Email & calendars",
+      "terms": ["fastmail"]
+    },
+    {
+      "id": "proton-mail",
+      "name": "Proton Mail",
+      "category": "Email & calendars",
+      "terms": ["proton mail", "proton bridge"],
+      "includePluginIds": ["omamail"]
+    },
+    {
+      "id": "todoist",
+      "name": "Todoist",
+      "category": "Tasks & notes",
+      "terms": ["todoist"]
+    },
+    {
+      "id": "notion",
+      "name": "Notion",
+      "category": "Tasks & notes",
+      "terms": ["notion"]
+    },
+    {
+      "id": "obsidian",
+      "name": "Obsidian",
+      "category": "Tasks & notes",
+      "terms": ["obsidian"]
+    },
+    {
+      "id": "linear",
+      "name": "Linear",
+      "category": "Tasks & notes",
+      "terms": ["linear inbox", "linear issue", "linear integration"],
+      "nameTerms": ["linear"],
+      "includePluginIds": ["gpdenny.linear"]
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "category": "Development & AI",
+      "terms": [
+        "github actions",
+        "github candidates",
+        "github contributions",
+        "github copilot",
+        "github discussions",
+        "github inbox",
+        "github notifications",
+        "github pull requests",
+        "github repositories",
+        "github repos",
+        "github search",
+        "github status",
+        "watch github"
+      ],
+      "nameTerms": ["github"],
+      "includePluginIds": ["cistatus", "dev.git", "omni", "reviewqueue"]
+    },
+    {
+      "id": "gitlab",
+      "name": "GitLab",
+      "category": "Development & AI",
+      "terms": ["gitlab"]
+    },
+    {
+      "id": "docker",
+      "name": "Docker",
+      "category": "Development & AI",
+      "terms": ["docker"]
+    },
+    {
+      "id": "podman",
+      "name": "Podman",
+      "category": "Development & AI",
+      "terms": ["podman"]
+    },
+    {
+      "id": "claude",
+      "name": "Claude",
+      "category": "Development & AI",
+      "terms": ["claude"]
+    },
+    {
+      "id": "chatgpt",
+      "name": "ChatGPT",
+      "category": "Development & AI",
+      "terms": ["chatgpt"]
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "category": "Development & AI",
+      "terms": ["ollama"]
+    },
+    {
+      "id": "google-drive",
+      "name": "Google Drive",
+      "category": "Storage & passwords",
+      "terms": ["google drive"]
+    },
+    {
+      "id": "dropbox",
+      "name": "Dropbox",
+      "category": "Storage & passwords",
+      "terms": ["dropbox"]
+    },
+    {
+      "id": "onedrive",
+      "name": "OneDrive",
+      "category": "Storage & passwords",
+      "terms": ["onedrive", "one drive"]
+    },
+    {
+      "id": "nextcloud",
+      "name": "Nextcloud",
+      "category": "Storage & passwords",
+      "terms": ["nextcloud"]
+    },
+    {
+      "id": "syncthing",
+      "name": "Syncthing",
+      "category": "Storage & passwords",
+      "terms": ["syncthing"]
+    },
+    {
+      "id": "bitwarden",
+      "name": "Bitwarden",
+      "category": "Storage & passwords",
+      "terms": ["bitwarden", "vaultwarden"]
+    },
+    {
+      "id": "1password",
+      "name": "1Password",
+      "category": "Storage & passwords",
+      "terms": ["1password"],
+      "nameTerms": ["1pass"]
+    },
+    {
+      "id": "steam",
+      "name": "Steam",
+      "category": "Gaming & home",
+      "terms": ["steam"],
+      "excludePluginIds": ["io.github.ejuro.blow-off-some-steam"]
+    },
+    {
+      "id": "home-assistant",
+      "name": "Home Assistant",
+      "category": "Gaming & home",
+      "terms": ["home assistant"]
+    },
+    {
+      "id": "tailscale",
+      "name": "Tailscale",
+      "category": "Network & privacy",
+      "terms": ["tailscale"]
+    },
+    {
+      "id": "mullvad",
+      "name": "Mullvad",
+      "category": "Network & privacy",
+      "terms": ["mullvad"]
+    },
+    {
+      "id": "proton-vpn",
+      "name": "Proton VPN",
+      "category": "Network & privacy",
+      "terms": ["proton vpn"],
+      "nameTerms": ["omaproton"],
+      "includePluginIds": ["io.github.grichard99.omaproton-vpn"]
+    }
+  ]
+}

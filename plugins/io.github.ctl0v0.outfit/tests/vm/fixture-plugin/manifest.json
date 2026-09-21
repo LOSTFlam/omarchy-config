@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "org.example.omafit-release-fixture",
+  "name": "Outfit Release Fixture",
+  "version": "0.1.0",
+  "author": "Outfit test harness",
+  "license": "MIT",
+  "description": "Harmless fictional widget used only in a disposable test VM.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {"barWidget": "Widget.qml"},
+  "barWidget": {"defaultSection": "right", "allowMultiple": false, "defaults": {}, "schema": []}
+}

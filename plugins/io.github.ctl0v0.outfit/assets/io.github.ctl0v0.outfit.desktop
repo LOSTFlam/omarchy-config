@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Outfit
+GenericName=Omarchy Plugin Manager
+Comment=Discover, browse, install, and manage Omarchy plugins
+Exec=omarchy-shell shell summon io.github.ctl0v0.outfit
+TryExec=omarchy-shell
+Icon=io.github.ctl0v0.outfit
+Terminal=false
+StartupNotify=false
+Categories=Settings;
+Keywords=Omarchy;plugins;plugin manager;marketplace;discover;extensions;setup;
+X-Outfit-Managed=true

@@ -4,29 +4,29 @@
     "layout": {
       "center": [
         {
-          "id": "ryrobes.beatbar",
-          "mode": "Aurora",
-          "gain": 170
-        },
-        {
-          "audioQuality": "320 kbps",
-          "clientId": "",
-          "deviceName": "Omarchy Spotify",
-          "fixedBarWidth": "Off",
-          "id": "quickshell.spotify",
+          "id": "io.github.jeremylanger.omaspotify",
+          "deviceName": "OmaSpotify",
           "idleShutdownMinutes": 15,
-          "maxBarTextWidth": "240",
+          "showMiniPlayer": "On",
+          "showVinylRecord": "On",
+          "shortcutPlayer": "Omarchy Music app",
+          "shortcutHints": "On",
+          "showLyrics": "On",
+          "showArtwork": "On",
+          "showTrackTitle": "On",
+          "showArtistName": "On",
+          "showPausedTrack": "On",
           "scrollBarText": "Off",
           "scrollSpeed": "1",
-          "shortcutHints": "Off",
-          "shortcutPlayer": "Omarchy Music app",
-          "showArtistName": "Off",
-          "showArtwork": "On",
-          "showLyrics": "On",
-          "showMiniPlayer": "On",
-          "showPausedTrack": "On",
-          "showTrackTitle": "On",
-          "showVinylRecord": "Off"
+          "maxBarTextWidth": "240",
+          "fixedBarWidth": "Off",
+          "audioQuality": "320 kbps",
+          "normalizeVolume": "On",
+          "volumeLevel": "Loud",
+          "clientId": "",
+          "librarySort": "library",
+          "libraryView": "list",
+          "libraryFilter": "all"
         },
         {
           "id": "crmne.lyrics"
@@ -52,6 +52,12 @@
         },
         {
           "id": "prusso.bisaiko"
+        },
+        {
+          "id": "gladimdim.config-sync"
+        },
+        {
+          "id": "omarchy.tray"
         }
       ],
       "left": [
@@ -60,102 +66,23 @@
         },
         {
           "id": "io.github.anooplamba.workspace-preview"
-        },
-        {
-          "id": "gladimdim.config-sync"
-        },
-        {
-          "id": "akitaonrails.ai-usagebar",
-          "lastSelectedEntryId": "openrouter",
-          "showAll": false,
-          "showProvider": true,
-          "showValue": true
         }
       ],
       "right": [
         {
-          "id": "omarchy.tray"
-        },
-        {
           "id": "omarchy.spacer"
-        },
-        {
-          "id": "alexzeitler.ytdlp"
         },
         {
           "id": "io.github.ferc10110.fresh-tube"
         },
         {
+          "id": "alexzeitler.ytdlp"
+        },
+        {
           "id": "co.klair.wallarchy"
         },
         {
-          "id": "esemczak.theme-modes"
-        },
-        {
           "id": "io.github.rr-codebase.wallpaper-weather"
-        },
-        {
-          "activeProfile": "islands",
-          "border": true,
-          "gap": 24,
-          "id": "io.github.jcarcinogen.rice-bar",
-          "opacity": 100,
-          "preset": "islands",
-          "profileVersion": 1,
-          "profiles": {
-            "bracket": {
-              "border": true,
-              "gap": 8,
-              "opacity": 20,
-              "radius": 0
-            },
-            "islands": {
-              "border": true,
-              "gap": 24,
-              "opacity": 100,
-              "radius": 24
-            },
-            "material": {
-              "border": false,
-              "gap": 8,
-              "opacity": 92,
-              "radius": 20
-            },
-            "minimal": {
-              "border": false,
-              "gap": 2,
-              "opacity": 55,
-              "radius": 0
-            },
-            "omarchy": {
-              "border": false,
-              "gap": 0,
-              "opacity": 100,
-              "radius": 0
-            },
-            "outline": {
-              "border": true,
-              "gap": 6,
-              "opacity": 20,
-              "radius": 14
-            },
-            "pills": {
-              "border": true,
-              "gap": 3,
-              "opacity": 90,
-              "radius": 18
-            },
-            "rail": {
-              "border": false,
-              "gap": 4,
-              "opacity": 60,
-              "radius": 0
-            }
-          },
-          "radius": 24
-        },
-        {
-          "id": "bar-glow"
         },
         {
           "id": "omarchy.agents"
@@ -164,15 +91,13 @@
           "id": "jankeesvw.text-transform"
         },
         {
-          "id": "jobo.omatype"
-        },
-        {
           "id": "io.github.mshareef-git.omavibes"
         },
         {
-          "autoCheckIntervalHours": 1,
-          "autoCheckUpdates": true,
-          "id": "omaplug"
+          "id": "touchtype"
+        },
+        {
+          "id": "io.github.ctl0v0.outfit"
         },
         {
           "id": "crmne.hyprmoncfg"
@@ -217,16 +142,20 @@
       "id": "wmfeht.border-fx"
     },
     {
-      "id": "io.github.sirjul1337.lock-explorer"
+      "id": "io.github.sirjul1337.lock-explorer",
+      "boot": "eyes",
+      "unlock": "fade",
+      "unlockMs": 800,
+      "design": "poster"
     },
     {
       "id": "bobbynicholas.omaland"
     },
     {
-      "id": "ivanskodje.animated-backgrounds"
+      "id": "io.github.aswenia.omacord"
     },
     {
-      "id": "io.github.aswenia.omacord"
+      "id": "luneth90.keycade"
     }
   ],
   "version": 1

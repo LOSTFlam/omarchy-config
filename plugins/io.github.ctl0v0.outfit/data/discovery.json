@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "entries": [
+    {
+      "id": "ecylmz.spaceview",
+      "commit": "2889bae5a8e12314ef58bd1229ab138b6dc11101",
+      "heading": "Find your windows at a glance",
+      "setup": "Configure a shortcut or the optional trackpad gesture using the project instructions.",
+      "family": "workspace-overview",
+      "signals": ["touchpad", "multi-monitor"],
+      "everyday": true
+    },
+    {
+      "id": "crmne.mpris",
+      "commit": "1a8c20cef48270876992279ce105f39a2ab4b29d",
+      "heading": "Control music without switching windows",
+      "setup": "Needs a compatible player exposing MPRIS, such as Spotify. Start the player to see controls.",
+      "family": "media-controls",
+      "signals": ["bluetooth-headphones"],
+      "everyday": true
+    },
+    {
+      "id": "akshar.radio-atlas",
+      "commit": "4e88a70f79cef462f84a56f19fb3a3971d958e21",
+      "heading": "Take a small radio trip",
+      "setup": "Uses internet radio services. Review the project requirements before installing.",
+      "family": "radio-exploration",
+      "signals": [],
+      "everyday": true
+    },
+    {
+      "id": "next-key",
+      "commit": "e02860f539cdc29eecce6aae6c4de955446bd237",
+      "heading": "Learn shortcuts while you use them",
+      "setup": "Requires Hyprland 0.55+ and the documented setup hook; installing the plugin alone is not the final step.",
+      "family": "shortcut-guide",
+      "signals": [],
+      "everyday": true
+    },
+    {
+      "id": "b.omadoro",
+      "commit": "24f49823c6749204b17dca2481a68e8a12200eda",
+      "heading": "Make room for a focused work session",
+      "setup": "A Pomodoro timer with work and break periods. Review its timer settings after enabling.",
+      "family": "focus-timer",
+      "signals": [],
+      "everyday": true
+    },
+    {
+      "id": "example.dock-helper",
+      "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "heading": "Keep your dock controls close",
+      "setup": "Fictional demo: connect the example USB-C dock to see its controls.",
+      "family": "dock-controls",
+      "signals": ["hardware-dock"],
+      "everyday": false
+    },
+    {
+      "id": "example.workspace-map",
+      "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "heading": "Find your way between workspaces",
+      "setup": "Fictional demo: choose the workspaces to show in the map.",
+      "family": "workspace-overview",
+      "signals": ["multi-monitor"],
+      "everyday": true
+    },
+    {
+      "id": "example.quiet-hours",
+      "commit": "cccccccccccccccccccccccccccccccccccccccc",
+      "heading": "Give yourself a quieter desktop",
+      "setup": "Fictional demo: choose when the do-not-disturb schedule should run.",
+      "family": "focus-schedule",
+      "signals": [],
+      "everyday": true
+    }
+  ]
+}

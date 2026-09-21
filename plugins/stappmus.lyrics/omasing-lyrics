@@ -1,0 +1,948 @@
+#!/usr/bin/env python3
+"""Small, dependency-free provider helper for the Omasing QML plugin.
+
+The QML process stays focused on presentation. This helper owns HTTP timeouts,
+catalog merging, recording/version matching, and cross-provider lyric checks.
+Every command prints exactly one JSON object to stdout.
+"""
+
+from __future__ import annotations
+
+import concurrent.futures
+import difflib
+import html
+import json
+import math
+import re
+import sys
+import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections import Counter
+from typing import Any, Iterable
+
+
+VERSION = "0.1.0"
+USER_AGENT = f"Omasing/{VERSION} (https://github.com/stappmus/Omasing)"
+LRCLIB_BASE = "https://lrclib.net"
+LYRICS_OVH_BASE = "https://api.lyrics.ovh"
+HTTP_TIMEOUT_SECONDS = 12
+MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+SEARCH_POPULARITY_WEIGHT = 0.25
+SEARCH_POPULARITY_RELEVANCE_WINDOW = 0.18
+
+
+class ProviderError(RuntimeError):
+    """A provider could not return a usable response."""
+
+
+class ProviderNotFound(ProviderError):
+    """A provider answered normally but has no match."""
+
+
+class HttpClient:
+    def get_json(self, url: str) -> Any:
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+                raw = response.read(MAX_RESPONSE_BYTES + 1)
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                raise ProviderNotFound("no match") from error
+            raise ProviderError(f"HTTP {error.code}") from error
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            reason = getattr(error, "reason", error)
+            raise ProviderError(str(reason)) from error
+
+        if len(raw) > MAX_RESPONSE_BYTES:
+            raise ProviderError("response was unexpectedly large")
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ProviderError("response was not valid JSON") from error
+
+
+def clean_space(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def normalized(value: Any) -> str:
+    text = html.unescape(str(value or ""))
+    text = unicodedata.normalize("NFKD", text).casefold()
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    text = text.replace("&", " and ")
+    text = re.sub(r"['’‘ʼ`]", "", text)
+    return clean_space(re.sub(r"[^a-z0-9]+", " ", text))
+
+
+def similarity(left: Any, right: Any) -> float:
+    a = normalized(left)
+    b = normalized(right)
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio()
+
+
+def strip_artist_prefix(track: Any, artist: Any) -> str:
+    value = clean_space(track)
+    performer = clean_space(artist)
+    if not value or not performer:
+        return value
+    pattern = r"^\s*" + re.escape(performer) + r"\s*[-–—:]\s*"
+    stripped = re.sub(pattern, "", value, count=1, flags=re.IGNORECASE).strip()
+    return stripped or value
+
+
+_VERSION_GROUP = re.compile(
+    r"\s*[\[(][^\])]*(?:"
+    r"remaster(?:ed)?|official\s+(?:audio|video)|lyrics?\s+video|"
+    r"live|acoustic|unplugged|demo|remix|radio\s+edit|extended|"
+    r"instrumental|karaoke|session|sped\s+up|slowed|nightcore|"
+    r"mono|stereo|clean|explicit|alternate|alternative|deluxe\s+version"
+    r")[^\])]*[\])]",
+    re.IGNORECASE,
+)
+
+
+def canonical_title(track: Any, artist: Any = "") -> str:
+    value = strip_artist_prefix(track, artist)
+    previous = None
+    while previous != value:
+        previous = value
+        value = _VERSION_GROUP.sub("", value)
+    value = re.sub(
+        r"\s*[-–—:]\s*(?:\d{4}\s+)?(?:remaster(?:ed)?|official\s+audio|official\s+video)\s*$",
+        "",
+        value,
+        flags=re.IGNORECASE,
+    )
+    return clean_space(value)
+
+
+_VARIANT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("live", re.compile(r"\b(?:live|ao vivo|en vivo|concert)\b")),
+    ("acoustic", re.compile(r"\b(?:acoustic|unplugged)\b")),
+    ("demo", re.compile(r"\b(?:demo|rehearsal)\b")),
+    ("remix", re.compile(r"\b(?:remix|rework|mashup)\b")),
+    ("instrumental", re.compile(r"\b(?:instrumental|karaoke)\b")),
+    ("radio-edit", re.compile(r"\bradio\s+edit\b")),
+    ("extended", re.compile(r"\bextended(?:\s+mix|\s+version)?\b")),
+    ("speed", re.compile(r"\b(?:sped\s+up|slowed|nightcore)\b")),
+    ("clean", re.compile(r"\bclean(?:\s+version|\s+edit)?\b")),
+    ("alternate", re.compile(r"\b(?:alternate|alternative)\s+(?:take|version|mix)\b")),
+)
+
+
+def variant_tags(*values: Any) -> set[str]:
+    text = normalized(" ".join(str(value or "") for value in values))
+    return {tag for tag, pattern in _VARIANT_PATTERNS if pattern.search(text)}
+
+
+def duration_seconds(value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return number if math.isfinite(number) and number > 0 else 0.0
+
+
+def format_duration(value: Any) -> str:
+    total = int(round(duration_seconds(value)))
+    if total <= 0:
+        return ""
+    return f"{total // 60}:{total % 60:02d}"
+
+
+def metadata_score(song: dict[str, Any], candidate: dict[str, Any]) -> float:
+    wanted_artist = clean_space(song.get("artist"))
+    wanted_track = clean_space(song.get("title"))
+    wanted_album = clean_space(song.get("album"))
+    found_artist = clean_space(candidate.get("artist"))
+    found_track = clean_space(candidate.get("track"))
+    found_album = clean_space(candidate.get("album"))
+
+    score = 0.0
+    score += 0.36 * similarity(wanted_artist, found_artist)
+    score += 0.46 * similarity(
+        canonical_title(wanted_track, wanted_artist),
+        canonical_title(found_track, found_artist),
+    )
+    if wanted_album and found_album:
+        score += 0.08 * similarity(wanted_album, found_album)
+
+    wanted_duration = duration_seconds(song.get("duration"))
+    found_duration = duration_seconds(candidate.get("duration"))
+    if wanted_duration and found_duration:
+        difference = abs(wanted_duration - found_duration)
+        if difference <= 4:
+            score += 0.10
+        elif difference <= 10:
+            score += 0.075
+        elif difference <= 25:
+            score += 0.03
+        elif difference >= 60:
+            score -= 0.09
+
+    wanted_tags = variant_tags(wanted_track, wanted_album)
+    found_tags = variant_tags(found_track, found_album)
+    if wanted_tags == found_tags and wanted_tags:
+        score += 0.10
+    elif not wanted_tags and found_tags:
+        score -= 0.40
+    elif wanted_tags and not wanted_tags:
+        score -= 0.34
+    elif wanted_tags - found_tags:
+        score -= 0.42
+    elif found_tags - wanted_tags:
+        score -= 0.16
+
+    if song.get("instrumental") is True and candidate.get("instrumental") is False:
+        score -= 0.25
+    if song.get("instrumental") is False and candidate.get("instrumental") is True:
+        score -= 0.40
+    return score
+
+
+_LRC_TIMESTAMP = re.compile(r"^(?:\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\])+\s*")
+_LRC_METADATA = re.compile(r"^\[(?:ar|al|ti|au|by|offset|re|ve|length):", re.IGNORECASE)
+
+
+def clean_lyrics(value: Any) -> str:
+    text = html.unescape(str(value or "")).replace("\ufeff", "")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines: list[str] = []
+    blank = False
+    for raw_line in text.split("\n"):
+        line = _LRC_TIMESTAMP.sub("", raw_line.strip()).strip()
+        if _LRC_METADATA.match(line):
+            continue
+        if not line:
+            if lines and not blank:
+                lines.append("")
+            blank = True
+            continue
+        lines.append(line)
+        blank = False
+    return "\n".join(lines).strip()
+
+
+def plain_from_synced(value: Any) -> str:
+    lines: list[str] = []
+    for raw_line in str(value or "").replace("\r", "").split("\n"):
+        line = raw_line.strip()
+        if _LRC_METADATA.match(line):
+            continue
+        line = _LRC_TIMESTAMP.sub("", line).strip()
+        lines.append(line)
+    return clean_lyrics("\n".join(lines))
+
+
+def usable_lyrics(value: Any) -> bool:
+    text = clean_lyrics(value)
+    words = normalized(text).split()
+    if len(text) < 12 or len(words) < 3:
+        return False
+    only_marker = re.fullmatch(
+        r"\[?\s*(?:instrumental|music|no lyrics|instrumental break)\s*\]?",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return only_marker is None
+
+
+_SECTION_LINE = re.compile(
+    r"^\[?(?:verse|chorus|bridge|intro|outro|hook|pre[- ]?chorus|post[- ]?chorus|refrain|interlude)(?:\s+\d+)?(?::[^\]]*)?\]?$",
+    re.IGNORECASE,
+)
+
+
+def lyric_fingerprint(value: Any) -> tuple[list[str], list[str]]:
+    lines: list[str] = []
+    for raw_line in clean_lyrics(value).split("\n"):
+        if _SECTION_LINE.match(raw_line.strip()):
+            continue
+        line = normalized(raw_line)
+        if line:
+            lines.append(line)
+    tokens = " ".join(lines).split()
+    return lines, tokens
+
+
+def lyrics_similarity(left: Any, right: Any) -> float:
+    left_lines, left_tokens = lyric_fingerprint(left)
+    right_lines, right_tokens = lyric_fingerprint(right)
+    if not left_tokens or not right_tokens:
+        return 0.0
+    if left_tokens == right_tokens:
+        return 1.0
+
+    token_sequence = difflib.SequenceMatcher(
+        None, left_tokens, right_tokens, autojunk=False
+    ).ratio()
+    line_sequence = difflib.SequenceMatcher(
+        None, left_lines, right_lines, autojunk=False
+    ).ratio()
+    left_counts = Counter(left_tokens)
+    right_counts = Counter(right_tokens)
+    overlap = sum((left_counts & right_counts).values())
+    containment = overlap / max(1, min(len(left_tokens), len(right_tokens)))
+    length_balance = min(len(left_tokens), len(right_tokens)) / max(
+        len(left_tokens), len(right_tokens)
+    )
+    return max(
+        0.0,
+        min(
+            1.0,
+            0.48 * token_sequence
+            + 0.10 * line_sequence
+            + 0.32 * containment
+            + 0.10 * length_balance,
+        ),
+    )
+
+
+def _url(base: str, path: str, parameters: dict[str, Any] | None = None) -> str:
+    address = base.rstrip("/") + "/" + path.lstrip("/")
+    if parameters:
+        values = {
+            key: str(value)
+            for key, value in parameters.items()
+            if value is not None and str(value) != ""
+        }
+        if values:
+            address += "?" + urllib.parse.urlencode(values)
+    return address
+
+
+def parse_deezer_results(payload: Any) -> list[dict[str, Any]]:
+    rows = payload.get("data", []) if isinstance(payload, dict) else []
+    output: list[dict[str, Any]] = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        artist_row = row.get("artist") if isinstance(row.get("artist"), dict) else {}
+        album_row = row.get("album") if isinstance(row.get("album"), dict) else {}
+        title = clean_space(row.get("title"))
+        artist = clean_space(artist_row.get("name"))
+        if not title or not artist:
+            continue
+        output.append(
+            {
+                "id": f"deezer:{row.get('id', '')}",
+                "providerId": str(row.get("id", "")),
+                "source": "Deezer",
+                "title": title,
+                "lookupTitle": clean_space(row.get("title_short")) or canonical_title(title),
+                "artist": artist,
+                "album": clean_space(album_row.get("title")),
+                "duration": int(round(duration_seconds(row.get("duration")))),
+                "durationLabel": format_duration(row.get("duration")),
+                # Deezer's rank is a catalog popularity signal. It is not a
+                # play count, so search normalizes it against the strongest
+                # result in this response before using it.
+                "popularity": int(round(duration_seconds(row.get("rank")))),
+                "coverUrl": clean_space(
+                    album_row.get("cover_medium") or album_row.get("cover_small")
+                ),
+                "lrclibId": 0,
+                "hasSynced": False,
+                "instrumental": False,
+            }
+        )
+    return output
+
+
+def candidate_from_lrclib(row: Any, exact: bool = False) -> dict[str, Any] | None:
+    if not isinstance(row, dict):
+        return None
+    artist = clean_space(row.get("artistName"))
+    track = strip_artist_prefix(row.get("trackName") or row.get("name"), artist)
+    plain = clean_lyrics(row.get("plainLyrics"))
+    synced = str(row.get("syncedLyrics") or "").strip()
+    if not plain and synced:
+        plain = plain_from_synced(row.get("syncedLyrics"))
+    return {
+        "provider": "LRCLIB",
+        "providerKey": "lrclib",
+        "providerId": str(row.get("id", "")),
+        "track": track,
+        "artist": artist,
+        "album": clean_space(row.get("albumName")),
+        "duration": duration_seconds(row.get("duration")),
+        "instrumental": row.get("instrumental") is True,
+        "plain": plain,
+        "synced": str(row.get("syncedLyrics") or "").strip(),
+        "exact": exact,
+    }
+
+
+def parse_lrclib_search_results(payload: Any) -> list[dict[str, Any]]:
+    rows = payload if isinstance(payload, list) else []
+    output: list[dict[str, Any]] = []
+    for row in rows:
+        candidate = candidate_from_lrclib(row)
+        if not candidate or not candidate["track"] or not candidate["artist"]:
+            continue
+        output.append(
+            {
+                "id": f"lrclib:{candidate['providerId']}",
+                "providerId": candidate["providerId"],
+                "source": "LRCLIB",
+                "title": candidate["track"],
+                "lookupTitle": canonical_title(candidate["track"], candidate["artist"]),
+                "artist": candidate["artist"],
+                "album": candidate["album"],
+                "duration": int(round(candidate["duration"])),
+                "durationLabel": format_duration(candidate["duration"]),
+                "coverUrl": "",
+                "lrclibId": int(candidate["providerId"])
+                if candidate["providerId"].isdigit()
+                else 0,
+                "hasSynced": bool(candidate["synced"]),
+                "instrumental": candidate["instrumental"],
+            }
+        )
+    return output
+
+
+def _search_result_key(item: dict[str, Any]) -> str:
+    return "|".join((normalized(item.get("artist")), normalized(item.get("title"))))
+
+
+def _merge_result(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    if existing.get("source") == "LRCLIB" and incoming.get("source") == "Deezer":
+        primary, secondary = incoming.copy(), existing
+    else:
+        primary, secondary = existing.copy(), incoming
+    for key in (
+        "album",
+        "coverUrl",
+        "lookupTitle",
+        "duration",
+        "durationLabel",
+        "popularity",
+    ):
+        if not primary.get(key) and secondary.get(key):
+            primary[key] = secondary[key]
+    if not primary.get("lrclibId") and secondary.get("lrclibId"):
+        primary["lrclibId"] = secondary["lrclibId"]
+    primary["hasSynced"] = bool(primary.get("hasSynced") or secondary.get("hasSynced"))
+    primary["instrumental"] = bool(
+        primary.get("instrumental") or secondary.get("instrumental")
+    )
+    return primary
+
+
+def search_result_score(query: str, item: dict[str, Any]) -> float:
+    needle = normalized(query)
+    title = normalized(
+        canonical_title(item.get("title"), item.get("artist"))
+    )
+    artist = normalized(item.get("artist"))
+    album = normalized(item.get("album"))
+    haystack = clean_space(f"{title} {artist} {album}")
+    tokens = needle.split()
+    coverage = sum(1 for token in tokens if token in haystack.split()) / max(1, len(tokens))
+    title_tokens = title.split()
+    artist_tokens = artist.split()
+    query_token_set = set(tokens)
+    title_coverage = sum(1 for token in title_tokens if token in query_token_set) / max(
+        1, len(title_tokens)
+    )
+    artist_coverage = sum(1 for token in artist_tokens if token in query_token_set) / max(
+        1, len(artist_tokens)
+    )
+    if needle == title:
+        # This is an unambiguous title-only query. Do not reward an artist
+        # merely for repeating a title word (for example, "Time" in the
+        # artist name when searching for "It's Time"). Popularity should
+        # order equally relevant recordings here.
+        artist_coverage = 0.0
+    ordered = max(
+        difflib.SequenceMatcher(None, needle, title, autojunk=False).ratio(),
+        difflib.SequenceMatcher(None, needle, f"{artist} {title}", autojunk=False).ratio(),
+        difflib.SequenceMatcher(None, needle, f"{title} {artist}", autojunk=False).ratio(),
+    )
+    score = (
+        0.25 * coverage
+        + 0.28 * ordered
+        + 0.24 * title_coverage
+        + 0.18 * artist_coverage
+    )
+    identity_orders = (clean_space(f"{artist} {title}"), clean_space(f"{title} {artist}"))
+    if needle and any(needle in identity for identity in identity_orders):
+        score += 0.08
+    query_tags = variant_tags(query)
+    item_tags = variant_tags(item.get("title"), item.get("album"))
+    if not query_tags and item_tags:
+        score -= 0.26
+    elif query_tags and query_tags <= item_tags:
+        score += 0.10
+    if 0 < duration_seconds(item.get("duration")) < 30:
+        score -= 0.20
+    if item.get("source") == "Deezer":
+        score += 0.075
+    return score
+
+
+def merge_search_results(
+    query: str, result_groups: Iterable[Iterable[dict[str, Any]]]
+) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for group in result_groups:
+        for item in group:
+            key = _search_result_key(item)
+            if not key or key == "|":
+                continue
+            merged[key] = _merge_result(merged[key], item) if key in merged else item.copy()
+    ranked = list(merged.values())
+    maximum_popularity = max(
+        (duration_seconds(item.get("popularity")) for item in ranked),
+        default=0.0,
+    )
+    for item in ranked:
+        item["_relevance"] = search_result_score(query, item)
+    maximum_relevance = max(
+        (item["_relevance"] for item in ranked),
+        default=0.0,
+    )
+    for item in ranked:
+        raw_popularity = duration_seconds(item.get("popularity"))
+        item["_popularity"] = (
+            math.sqrt(raw_popularity / maximum_popularity)
+            if raw_popularity > 0 and maximum_popularity > 0
+            else 0.0
+        )
+        relevance_gap = max(0.0, maximum_relevance - item["_relevance"])
+        popularity_eligibility = max(
+            0.0,
+            1.0 - relevance_gap / SEARCH_POPULARITY_RELEVANCE_WINDOW,
+        )
+        item["_score"] = (
+            item["_relevance"]
+            + SEARCH_POPULARITY_WEIGHT
+            * item["_popularity"]
+            * popularity_eligibility
+        )
+    ranked.sort(
+        key=lambda item: (
+            item["_score"],
+            item["_relevance"],
+            duration_seconds(item.get("popularity")),
+            bool(item.get("coverUrl")),
+            bool(item.get("hasSynced")),
+        ),
+        reverse=True,
+    )
+    for item in ranked:
+        for internal_key in ("_score", "_relevance", "_popularity"):
+            item.pop(internal_key, None)
+    return ranked[:20]
+
+
+def search_catalog(query: str, client: HttpClient | None = None) -> dict[str, Any]:
+    client = client or HttpClient()
+    query = clean_space(query)
+    if len(query) < 2:
+        return {
+            "state": "idle",
+            "message": "Type at least two characters.",
+            "query": query,
+            "results": [],
+            "warnings": [],
+        }
+
+    provider_calls = {
+        "LRCLIB": lambda: client.get_json(
+            _url(LRCLIB_BASE, "/api/search", {"q": query})
+        ),
+        "Deezer": lambda: client.get_json(
+            _url(
+                LYRICS_OVH_BASE,
+                "/suggest/" + urllib.parse.quote(query, safe=""),
+            )
+        ),
+    }
+    payloads: dict[str, Any] = {}
+    warnings: list[str] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {executor.submit(call): name for name, call in provider_calls.items()}
+        for future in concurrent.futures.as_completed(futures):
+            name = futures[future]
+            try:
+                payloads[name] = future.result()
+            except ProviderError as error:
+                warnings.append(f"{name}: {error}")
+
+    results = merge_search_results(
+        query,
+        (
+            parse_deezer_results(payloads.get("Deezer")),
+            parse_lrclib_search_results(payloads.get("LRCLIB")),
+        ),
+    )
+    if results:
+        state = "ready"
+        message = f"{len(results)} recordings found"
+    elif payloads:
+        state = "not-found"
+        message = "No matching recordings were found."
+    else:
+        state = "error"
+        message = "The lyric providers could not be reached."
+    return {
+        "state": state,
+        "message": message,
+        "query": query,
+        "results": results,
+        "warnings": warnings,
+    }
+
+
+def _lrclib_by_id(client: HttpClient, identifier: int) -> Any:
+    return client.get_json(_url(LRCLIB_BASE, f"/api/get/{identifier}"))
+
+
+def _lrclib_exact(client: HttpClient, song: dict[str, Any]) -> Any:
+    parameters: dict[str, Any] = {
+        "track_name": song.get("title"),
+        "artist_name": song.get("artist"),
+        "album_name": song.get("album"),
+    }
+    if duration_seconds(song.get("duration")):
+        parameters["duration"] = int(round(duration_seconds(song.get("duration"))))
+    return client.get_json(_url(LRCLIB_BASE, "/api/get", parameters))
+
+
+def _lrclib_metadata_search(client: HttpClient, song: dict[str, Any]) -> Any:
+    return client.get_json(
+        _url(
+            LRCLIB_BASE,
+            "/api/search",
+            {
+                "track_name": song.get("title"),
+                "artist_name": song.get("artist"),
+                "album_name": song.get("album"),
+            },
+        )
+    )
+
+
+def _lyrics_ovh(client: HttpClient, song: dict[str, Any]) -> dict[str, Any]:
+    artist = clean_space(song.get("artist"))
+    title = clean_space(song.get("title"))
+    fallbacks = [title]
+    # Never turn an explicitly selected live/demo/remix recording into the
+    # studio title just to manufacture a result. Remasters are deliberately
+    # not semantic tags because their words normally remain unchanged.
+    if not variant_tags(title, song.get("album")):
+        for fallback in (song.get("lookupTitle"), canonical_title(title, artist)):
+            fallback = clean_space(fallback)
+            if fallback and normalized(fallback) not in {normalized(item) for item in fallbacks}:
+                fallbacks.append(fallback)
+
+    last_error: ProviderError | None = None
+    for requested_title in fallbacks:
+        address = _url(
+            LYRICS_OVH_BASE,
+            "/v1/"
+            + urllib.parse.quote(artist, safe="")
+            + "/"
+            + urllib.parse.quote(requested_title, safe=""),
+        )
+        try:
+            payload = client.get_json(address)
+        except ProviderNotFound as error:
+            last_error = error
+            continue
+        lyrics = payload.get("lyrics") if isinstance(payload, dict) else ""
+        if usable_lyrics(lyrics):
+            return {"lyrics": clean_lyrics(lyrics), "requestedTitle": requested_title}
+    raise last_error or ProviderNotFound("no match")
+
+
+def _lyrics_ovh_candidate(payload: Any, song: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(payload, dict) or not usable_lyrics(payload.get("lyrics")):
+        return None
+    return {
+        "provider": "Lyrics.ovh",
+        "providerKey": "lyrics-ovh",
+        "providerId": "",
+        "track": clean_space(song.get("title")),
+        "artist": clean_space(song.get("artist")),
+        "album": clean_space(song.get("album")),
+        "duration": duration_seconds(song.get("duration")),
+        "instrumental": False,
+        "plain": clean_lyrics(payload.get("lyrics")),
+        "synced": "",
+        "exact": True,
+    }
+
+
+def _dedupe_candidates(
+    song: dict[str, Any], candidates: Iterable[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    chosen: dict[tuple[str, str], dict[str, Any]] = {}
+    for candidate in candidates:
+        if not candidate or not usable_lyrics(candidate.get("plain")):
+            continue
+        _, tokens = lyric_fingerprint(candidate.get("plain"))
+        fingerprint = " ".join(tokens)
+        key = (str(candidate.get("providerKey")), fingerprint)
+        current = chosen.get(key)
+        if current is None:
+            chosen[key] = candidate
+            continue
+        candidate_rank = metadata_score(song, candidate) + (0.08 if candidate.get("exact") else 0)
+        current_rank = metadata_score(song, current) + (0.08 if current.get("exact") else 0)
+        if candidate_rank > current_rank or (
+            candidate.get("synced") and not current.get("synced")
+        ):
+            chosen[key] = candidate
+    return list(chosen.values())
+
+
+def choose_best_candidate(
+    song: dict[str, Any],
+    candidates: Iterable[dict[str, Any]],
+    checked_sources: Iterable[str] = (),
+) -> dict[str, Any]:
+    choices = _dedupe_candidates(song, candidates)
+    checked = sorted(set(str(source) for source in checked_sources if source))
+    if not choices:
+        return {
+            "state": "not-found",
+            "message": "No lyrics matched this recording closely enough.",
+            "song": song,
+            "plainLyrics": "",
+            "syncedLyrics": "",
+            "verification": {
+                "level": "unavailable",
+                "label": "No match",
+                "detail": "The providers had no usable lyrics for this recording.",
+                "score": 0.0,
+                "sources": checked,
+            },
+        }
+
+    for choice in choices:
+        choice["_metadata"] = metadata_score(song, choice)
+        independent: list[tuple[float, dict[str, Any]]] = []
+        for other in choices:
+            if other is choice or other.get("providerKey") == choice.get("providerKey"):
+                continue
+            independent.append(
+                (lyrics_similarity(choice.get("plain"), other.get("plain")), other)
+            )
+        independent.sort(key=lambda pair: pair[0], reverse=True)
+        choice["_agreement"] = independent[0][0] if independent else 0.0
+        choice["_agreementProvider"] = (
+            independent[0][1].get("provider") if independent else ""
+        )
+        provider_bonus = 0.065 if choice.get("providerKey") == "lrclib" else 0.025
+        choice["_rank"] = (
+            choice["_metadata"]
+            + 0.56 * choice["_agreement"]
+            + provider_bonus
+            + (0.055 if choice.get("exact") else 0.0)
+            + (0.035 if choice.get("synced") else 0.0)
+        )
+
+    choices.sort(key=lambda choice: choice["_rank"], reverse=True)
+    best = choices[0]
+    agreement = float(best.get("_agreement", 0.0))
+    provider_count = len({choice.get("providerKey") for choice in choices})
+    if provider_count >= 2 and agreement >= 0.78:
+        level = "verified"
+        label = "Verified"
+        detail = (
+            f"{best['provider']} and {best['_agreementProvider']} agree "
+            f"({round(agreement * 100)}% text match)."
+        )
+    elif provider_count >= 2 and agreement >= 0.60:
+        level = "partial"
+        label = "Mostly matched"
+        detail = (
+            f"Two providers mostly agree ({round(agreement * 100)}% text match); "
+            "formatting or repeated sections differ."
+        )
+    elif provider_count >= 2:
+        level = "conflict"
+        label = "Sources disagree"
+        detail = (
+            "Providers returned different words. Showing the result that best "
+            "matches the selected recording metadata."
+        )
+    else:
+        level = "single"
+        label = "Single source"
+        detail = "Only one provider returned usable lyrics for this recording."
+
+    for choice in choices:
+        for internal_key in (
+            "_metadata",
+            "_agreement",
+            "_agreementProvider",
+            "_rank",
+        ):
+            choice.pop(internal_key, None)
+    return {
+        "state": "ready",
+        "message": "Lyrics ready",
+        "song": song,
+        "plainLyrics": clean_lyrics(best.get("plain")),
+        "syncedLyrics": str(best.get("synced") or "").strip(),
+        "source": best.get("provider"),
+        "verification": {
+            "level": level,
+            "label": label,
+            "detail": detail,
+            "score": round(agreement, 3),
+            "sources": checked or sorted(
+                {str(choice.get("provider")) for choice in choices}
+            ),
+        },
+    }
+
+
+def fetch_lyrics(song: dict[str, Any], client: HttpClient | None = None) -> dict[str, Any]:
+    client = client or HttpClient()
+    song = {
+        "id": clean_space(song.get("id")),
+        "title": clean_space(song.get("title")),
+        "lookupTitle": clean_space(song.get("lookupTitle")),
+        "artist": clean_space(song.get("artist")),
+        "album": clean_space(song.get("album")),
+        "duration": int(round(duration_seconds(song.get("duration")))),
+        "durationLabel": format_duration(song.get("duration")),
+        "coverUrl": clean_space(song.get("coverUrl")),
+        "lrclibId": int(song.get("lrclibId") or 0),
+        "instrumental": song.get("instrumental") is True,
+    }
+    if not song["title"] or not song["artist"]:
+        return {
+            "state": "error",
+            "message": "The selected result is missing its title or artist.",
+            "song": song,
+            "plainLyrics": "",
+            "syncedLyrics": "",
+            "verification": {
+                "level": "unavailable",
+                "label": "Invalid selection",
+                "detail": "Choose a catalog result and try again.",
+                "score": 0.0,
+                "sources": [],
+            },
+        }
+
+    calls: dict[str, Any] = {
+        "LRCLIB exact": lambda: _lrclib_exact(client, song),
+        "LRCLIB search": lambda: _lrclib_metadata_search(client, song),
+        "Lyrics.ovh": lambda: _lyrics_ovh(client, song),
+    }
+    if song["lrclibId"] > 0:
+        calls["LRCLIB selected"] = lambda: _lrclib_by_id(client, song["lrclibId"])
+
+    payloads: dict[str, Any] = {}
+    warnings: list[str] = []
+    checked_sources: set[str] = set()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(calls)) as executor:
+        futures = {executor.submit(call): name for name, call in calls.items()}
+        for future in concurrent.futures.as_completed(futures):
+            name = futures[future]
+            provider = "Lyrics.ovh" if name == "Lyrics.ovh" else "LRCLIB"
+            try:
+                payloads[name] = future.result()
+                checked_sources.add(provider)
+            except ProviderNotFound:
+                checked_sources.add(provider)
+            except ProviderError as error:
+                warnings.append(f"{name}: {error}")
+
+    candidates: list[dict[str, Any]] = []
+    instrumental_matches = 0
+    for name in ("LRCLIB selected", "LRCLIB exact"):
+        candidate = candidate_from_lrclib(payloads.get(name), exact=True)
+        if candidate:
+            if candidate.get("instrumental") and metadata_score(song, candidate) >= 0.55:
+                instrumental_matches += 1
+            candidates.append(candidate)
+    search_payload = payloads.get("LRCLIB search")
+    if isinstance(search_payload, list):
+        for row in search_payload[:30]:
+            candidate = candidate_from_lrclib(row)
+            if not candidate:
+                continue
+            # A loose metadata threshold keeps alternate database rows useful
+            # while dropping unrelated full-text hits.
+            if metadata_score(song, candidate) < 0.40:
+                continue
+            if candidate.get("instrumental"):
+                instrumental_matches += 1
+            candidates.append(candidate)
+    ovh_candidate = _lyrics_ovh_candidate(payloads.get("Lyrics.ovh"), song)
+    if ovh_candidate:
+        candidates.append(ovh_candidate)
+
+    result = choose_best_candidate(song, candidates, checked_sources)
+    if result["state"] == "not-found" and (
+        song.get("instrumental") or instrumental_matches > 0
+    ):
+        result.update(
+            {
+                "state": "instrumental",
+                "message": "This recording is marked as instrumental.",
+                "verification": {
+                    "level": "instrumental",
+                    "label": "Instrumental",
+                    "detail": "The matched recording has no sung lyrics.",
+                    "score": 1.0,
+                    "sources": sorted(checked_sources),
+                },
+            }
+        )
+    result["warnings"] = warnings
+    return result
+
+
+def _write(payload: dict[str, Any]) -> None:
+    sys.stdout.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    sys.stdout.write("\n")
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2:
+        _write({"state": "error", "message": "Expected search or lyrics command."})
+        return 2
+    command = argv[1]
+    try:
+        if command == "search" and len(argv) == 3:
+            _write(search_catalog(argv[2]))
+            return 0
+        if command == "lyrics" and len(argv) == 3:
+            selection = json.loads(argv[2])
+            if not isinstance(selection, dict):
+                raise ValueError("selection must be an object")
+            _write(fetch_lyrics(selection))
+            return 0
+        _write({"state": "error", "message": "Invalid command arguments."})
+        return 2
+    except (json.JSONDecodeError, ValueError, TypeError) as error:
+        _write({"state": "error", "message": f"Invalid request: {error}"})
+        return 2
+    except Exception as error:  # Defensive boundary: QML must always get JSON.
+        _write({"state": "error", "message": f"Lyrics helper failed: {error}"})
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))
