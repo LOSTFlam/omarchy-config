@@ -35,10 +35,10 @@
           "id": "omarchy.indicators"
         },
         {
+          "hour24": false,
           "id": "omacom.elsewhen",
-          "zones": "Moscow|Europe/Moscow, Tokyo|Asia/Tokyo, Honolulu|Pacific/Honolulu, Los Angeles|America/Los_Angeles, New York|America/New_York",
           "units": "C",
-          "hour24": false
+          "zones": "Moscow|Europe/Moscow, Tokyo|Asia/Tokyo, Honolulu|Pacific/Honolulu, Los Angeles|America/Los_Angeles, New York|America/New_York"
         },
         {
           "format": "HH:mm",
@@ -61,8 +61,8 @@
           "id": "rosakodu.dock"
         },
         {
-          "id": "harshith.system-monitor",
-          "barMode": "Both"
+          "barMode": "Both",
+          "id": "harshith.system-monitor"
         },
         {
           "id": "omarchy.menu"
@@ -100,6 +100,36 @@
           "id": "omarchy.agents"
         },
         {
+          "activeProfile": "islands",
+          "border": true,
+          "gap": 4,
+          "id": "io.github.jcarcinogen.rice-bar",
+          "opacity": 92,
+          "preset": "islands",
+          "profileVersion": 1,
+          "profiles": {
+            "islands": {
+              "border": true,
+              "gap": 4,
+              "opacity": 92,
+              "radius": 12
+            },
+            "material": {
+              "border": false,
+              "gap": 8,
+              "opacity": 92,
+              "radius": 20
+            },
+            "omarchy": {
+              "border": false,
+              "gap": 0,
+              "opacity": 100,
+              "radius": 0
+            }
+          },
+          "radius": 12
+        },
+        {
           "id": "gotar.omarchy-themes"
         },
         {
@@ -131,7 +161,7 @@
         },
         {
           "id": "jrmmhm.pocket",
-          "members": "alexzeitler.ytdlp, ussego.otoru, io.github.ferc10110.fresh-tube, io.github.mshareef-git.omavibes, touchtype, io.github.rr-codebase.wallpaper-weather, io.github.jcarcinogen.rice-bar"
+          "members": "alexzeitler.ytdlp, ussego.otoru, io.github.ferc10110.fresh-tube, io.github.mshareef-git.omavibes, touchtype, io.github.jcarcinogen.rice-bar, io.github.rr-codebase.wallpaper-weather"
         },
         {
           "id": "omarchy.emojis"
@@ -139,7 +169,7 @@
       ]
     },
     "position": "top",
-    "transparent": false
+    "transparent": true
   },
   "cloneSourceRestores": [
     "io.github.sirjul1337.lock-explorer"
@@ -159,20 +189,20 @@
       "id": "wmfeht.border-fx"
     },
     {
-      "id": "io.github.sirjul1337.lock-explorer",
-      "design": "bounce",
-      "unlock": "fade",
-      "unlockMs": 800,
       "avatar": "/home/lostflam/wallhaven-7j1q5e.jpg",
-      "wallpaperBlur": "sharp",
-      "powerActions": true,
+      "boot": "follow",
+      "design": "bounce",
       "favorites": [
         "music",
         "weather",
         "bounce",
         "motion"
       ],
-      "boot": "follow"
+      "id": "io.github.sirjul1337.lock-explorer",
+      "powerActions": true,
+      "unlock": "fade",
+      "unlockMs": 800,
+      "wallpaperBlur": "sharp"
     },
     {
       "id": "bobbynicholas.omaland"

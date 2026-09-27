@@ -3,34 +3,42 @@
 -- to hand that setting back to your own config.
 
 hl.config({
-  animations = {
-    workspace_wraparound = true,
+  decoration = {
+    active_opacity = 0.64,
+    blur = {
+      enabled = true,
+      brightness = 1.00,
+      contrast = 1.00,
+      noise = 0.00,
+      passes = 5,
+      popups = true,
+      size = 1,
+      special = true,
+      vibrancy = 0.16,
+      vibrancy_darkness = 0.16,
+      xray = true,
+    },
+    dim_around = 0.16,
+    dim_special = 0.16,
+    dim_strength = 0.16,
+    glow = {
+      range = 49,
+      render_power = 4,
+    },
+    inactive_opacity = 0.16,
+    rounding = 30,
+    rounding_power = 10.00,
+    shadow = {
+      enabled = true,
+      range = 16,
+      render_power = 1,
+    },
   },
 })
 
 hl.config({
-  decoration = {
-    blur = {
-      enabled = true,
-      contrast = 0.30,
-      passes = 3,
-      popups = true,
-      size = 6,
-      special = true,
-      vibrancy = 0.16,
-      vibrancy_darkness = 0.03,
-      xray = true,
-    },
-    dim_inactive = true,
-    glow = {
-      enabled = true,
-      range = 16,
-      render_power = 4,
-    },
-    shadow = {
-      enabled = true,
-      range = 16,
-    },
+  animations = {
+    workspace_wraparound = true,
   },
 })
 
@@ -54,19 +62,19 @@ hl.config({
 -- multiplies with the opacity settings, so 100% renders at 98.5%.
 o.window(".*", { opacity = "1.0 1.0" })
 
--- Animation speed: Omarchy's own set, every speed multiplied by 0.80.
-hl.animation({ leaf = "global", enabled = true, speed = 8, bezier = "default" })
-hl.animation({ leaf = "border", enabled = true, speed = 4.312, bezier = "easeOutQuint" })
-hl.animation({ leaf = "windows", enabled = true, speed = 3.032, bezier = "easeOutQuint" })
-hl.animation({ leaf = "windowsIn", enabled = true, speed = 3.28, bezier = "easeOutQuint", style = "popin 87%" })
-hl.animation({ leaf = "windowsOut", enabled = true, speed = 1.192, bezier = "linear", style = "popin 87%" })
-hl.animation({ leaf = "fadeIn", enabled = true, speed = 1.384, bezier = "almostLinear" })
-hl.animation({ leaf = "fadeOut", enabled = true, speed = 1.168, bezier = "almostLinear" })
-hl.animation({ leaf = "fade", enabled = true, speed = 2.424, bezier = "quick" })
+-- Animation speed: Omarchy's own set, every speed multiplied by 0.25.
+hl.animation({ leaf = "global", enabled = true, speed = 2.5, bezier = "default" })
+hl.animation({ leaf = "border", enabled = true, speed = 1.3475, bezier = "easeOutQuint" })
+hl.animation({ leaf = "windows", enabled = true, speed = 0.9475, bezier = "easeOutQuint" })
+hl.animation({ leaf = "windowsIn", enabled = true, speed = 1.025, bezier = "easeOutQuint", style = "popin 87%" })
+hl.animation({ leaf = "windowsOut", enabled = true, speed = 0.3725, bezier = "linear", style = "popin 87%" })
+hl.animation({ leaf = "fadeIn", enabled = true, speed = 0.4325, bezier = "almostLinear" })
+hl.animation({ leaf = "fadeOut", enabled = true, speed = 0.365, bezier = "almostLinear" })
+hl.animation({ leaf = "fade", enabled = true, speed = 0.7575, bezier = "quick" })
 hl.animation({ leaf = "fadeSwitch", enabled = false })
-hl.animation({ leaf = "layers", enabled = true, speed = 3.048, bezier = "easeOutQuint" })
-hl.animation({ leaf = "layersIn", enabled = true, speed = 3.2, bezier = "easeOutQuint", style = "fade" })
-hl.animation({ leaf = "layersOut", enabled = true, speed = 1.2, bezier = "linear", style = "fade" })
-hl.animation({ leaf = "fadeLayersIn", enabled = true, speed = 1.432, bezier = "almostLinear" })
-hl.animation({ leaf = "fadeLayersOut", enabled = true, speed = 1.112, bezier = "almostLinear" })
+hl.animation({ leaf = "layers", enabled = true, speed = 0.9525, bezier = "easeOutQuint" })
+hl.animation({ leaf = "layersIn", enabled = true, speed = 1, bezier = "easeOutQuint", style = "fade" })
+hl.animation({ leaf = "layersOut", enabled = true, speed = 0.375, bezier = "linear", style = "fade" })
+hl.animation({ leaf = "fadeLayersIn", enabled = true, speed = 0.4475, bezier = "almostLinear" })
+hl.animation({ leaf = "fadeLayersOut", enabled = true, speed = 0.3475, bezier = "almostLinear" })
 hl.animation({ leaf = "workspaces", enabled = false })

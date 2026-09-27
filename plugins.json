@@ -12,8 +12,8 @@
     {
       "id": "akitaonrails.ai-usagebar",
       "name": "AI Usage",
-      "version": "1.25.0",
-      "commit": "f78e266be47edcc0f80abca0f47753ef760f4596",
+      "version": "1.26.0",
+      "commit": "9e871950a4bfd7bf244ab4171647fdbe04089075",
       "source": "https://github.com/akitaonrails/ai-usagebar.git"
     },
     {
@@ -127,6 +127,13 @@
       "version": "1.3.2",
       "commit": "6e36873bc12c99c8ff3424f3edcc2253d1704a32",
       "source": "https://github.com/FerC10110/omarchy-fresh-tube.git"
+    },
+    {
+      "id": "io.github.jcarcinogen.rice-bar",
+      "name": "Rice Bar",
+      "version": "0.4.2",
+      "commit": "266b7dd133e3a86c04da5548d0844ed017d5d8de",
+      "source": "https://github.com/jcarcinogen/omarchy-rice-bar.git"
     },
     {
       "id": "io.github.jeremylanger.omaspotify",
