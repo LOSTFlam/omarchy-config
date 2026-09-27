@@ -3,8 +3,13 @@
 -- to hand that setting back to your own config.
 
 hl.config({
+  animations = {
+    workspace_wraparound = true,
+  },
+})
+
+hl.config({
   decoration = {
-    active_opacity = 0.64,
     blur = {
       enabled = true,
       brightness = 1.00,
@@ -33,12 +38,6 @@ hl.config({
       range = 1,
       render_power = 1,
     },
-  },
-})
-
-hl.config({
-  animations = {
-    workspace_wraparound = true,
   },
 })
 
