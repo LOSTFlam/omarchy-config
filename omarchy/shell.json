@@ -167,11 +167,20 @@
       "id": "wmfeht.border-fx"
     },
     {
-      "boot": "eyes",
-      "design": "poster",
       "id": "io.github.sirjul1337.lock-explorer",
+      "boot": "snapshot:bounce",
+      "design": "bounce",
       "unlock": "fade",
-      "unlockMs": 800
+      "unlockMs": 800,
+      "avatar": "/home/lostflam/wallhaven-7j1q5e.jpg",
+      "wallpaperBlur": "sharp",
+      "powerActions": true,
+      "favorites": [
+        "music",
+        "weather",
+        "bounce",
+        "motion"
+      ]
     },
     {
       "id": "bobbynicholas.omaland"
