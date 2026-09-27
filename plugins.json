@@ -164,13 +164,6 @@
       "source": "https://github.com/RR-CodeBase/omarchy-wallpaper-weather.git"
     },
     {
-      "id": "io.github.rui-pedro-silva.cloudflare-warp",
-      "name": "Cloudflare WARP",
-      "version": "1.0.0",
-      "commit": "b6383956f308e9ea7544b182f5bf863dd2463ada",
-      "source": "https://github.com/rpots/omarchy-cloudflare-warp.git"
-    },
-    {
       "id": "io.github.sirjul1337.lock-explorer",
       "name": "Lock Screen Explorer",
       "version": "1.9.1",

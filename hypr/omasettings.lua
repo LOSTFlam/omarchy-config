@@ -57,6 +57,15 @@ hl.config({
   },
 })
 
+hl.config({
+  group = {
+    groupbar = {
+      font_size = 16,
+      height = 32,
+    },
+  },
+})
+
 
 -- Full opacity: Omarchy tags every window and fades it to 0.985, which
 -- multiplies with the opacity settings, so 100% renders at 98.5%.

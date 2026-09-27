@@ -100,34 +100,46 @@
           "id": "omarchy.agents"
         },
         {
-          "id": "io.github.jcarcinogen.rice-bar",
-          "preset": "islands",
-          "opacity": 100,
-          "radius": 24,
-          "gap": 24,
+          "activeProfile": "islands",
           "border": true,
+          "gap": 24,
+          "id": "io.github.jcarcinogen.rice-bar",
+          "opacity": 100,
+          "preset": "islands",
+          "profileVersion": 1,
           "profiles": {
-            "omarchy": {
-              "opacity": 100,
-              "radius": 0,
-              "gap": 0,
-              "border": false
+            "glow": {
+              "border": true,
+              "gap": 8,
+              "opacity": 82,
+              "radius": 16
             },
             "islands": {
-              "opacity": 100,
-              "radius": 24,
+              "border": true,
               "gap": 24,
-              "border": true
+              "opacity": 100,
+              "radius": 24
             },
             "material": {
-              "opacity": 92,
-              "radius": 20,
+              "border": false,
               "gap": 8,
-              "border": false
+              "opacity": 92,
+              "radius": 20
+            },
+            "omarchy": {
+              "border": false,
+              "gap": 0,
+              "opacity": 100,
+              "radius": 0
+            },
+            "pills": {
+              "border": true,
+              "gap": 3,
+              "opacity": 90,
+              "radius": 18
             }
           },
-          "profileVersion": 1,
-          "activeProfile": "islands"
+          "radius": 24
         },
         {
           "id": "gotar.omarchy-themes"
