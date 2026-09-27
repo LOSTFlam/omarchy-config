@@ -1,0 +1,272 @@
+{
+  "format": "omarchy-config-plugins",
+  "version": 1,
+  "plugins": [
+    {
+      "id": "agx.screen-time",
+      "name": "Screen Time",
+      "version": "1.6.2",
+      "commit": "2c7b75abde55b23ee6d6e1356797c8f50f60b8a1",
+      "source": "https://github.com/ax1g/quickshell-screentime-plugin.git"
+    },
+    {
+      "id": "akitaonrails.ai-usagebar",
+      "name": "AI Usage",
+      "version": "1.25.0",
+      "commit": "f78e266be47edcc0f80abca0f47753ef760f4596",
+      "source": "https://github.com/akitaonrails/ai-usagebar.git"
+    },
+    {
+      "id": "alexzeitler.ytdlp",
+      "name": "yt-dlp",
+      "version": "0.2.1",
+      "commit": "86793804fa9b0bb1649499af69d283f528bf5a43",
+      "source": "https://github.com/AlexZeitler/omarchy-yt-dlp-plugin.git"
+    },
+    {
+      "id": "b.okomart",
+      "name": "Okomart",
+      "version": "0.0.83",
+      "commit": "c8ff3b2f5377c72c8a854c6183617602f904ee62",
+      "source": "https://github.com/brianblakely/omarchy-plugins.git"
+    },
+    {
+      "id": "bobbynicholas.omaland",
+      "name": "Omaland",
+      "version": "1.0.0",
+      "commit": "48d1c64acd78cd3a2862ccaad17c8045be3dda38",
+      "source": "https://github.com/bobby-nicholas/omaland.git"
+    },
+    {
+      "id": "co.klair.wallarchy",
+      "name": "Wallarchy",
+      "version": "0.1.0",
+      "commit": "80ca91b248eb1907241f8a7461bf2cbe9595c8e0",
+      "source": "https://github.com/perminder-klair/wallarchy.git"
+    },
+    {
+      "id": "coding-sparrow.cloudflare-warp",
+      "name": "Cloudflare WARP",
+      "version": "1.0.0",
+      "commit": "c441055e3e467e83eaee30a96490691b5f2d0926",
+      "source": "https://github.com/Coding-Sparrow/omarchy-cloudflare-warp.git"
+    },
+    {
+      "id": "crmne.hyprmoncfg",
+      "name": "hyprmoncfg: Multi-Monitor Manager for Omarchy",
+      "version": "2.4.1",
+      "commit": "174838d53b010c0997d1ce295e4a4df428a765c1",
+      "source": "https://github.com/crmne/omarchy-hyprmoncfg.git"
+    },
+    {
+      "id": "crmne.lyrics",
+      "name": "Lyrics Synced with Music",
+      "version": "1.2.5",
+      "commit": "0f23f17d153bbbfb50f3bf877daad72843e8198a",
+      "source": "https://github.com/crmne/omarchy-lyrics.git"
+    },
+    {
+      "id": "crmne.mpris",
+      "name": "Media Controls + Album Art",
+      "version": "1.1.1",
+      "commit": "85bb4ffc7750daf57705bcbd62482a3784e55972",
+      "source": "https://github.com/crmne/omarchy-mpris.git"
+    },
+    {
+      "id": "esemczak.theme-modes",
+      "name": "Theme modes",
+      "version": "1.0.0",
+      "commit": "9af6a0ae376c3839c9b9f03e1f93746dcdf17a14",
+      "source": "https://github.com/esemczak/omarchy-theme-modes.git"
+    },
+    {
+      "id": "gotar.omarchy-themes",
+      "name": "Themes Gallery",
+      "version": "1.0.1",
+      "commit": "e443eea5e9d0860aee1f6b4bf4b5b868ea40a6fa",
+      "source": "https://github.com/gotar/omarchy-themes.git"
+    },
+    {
+      "id": "harel.omarchy-synchro",
+      "name": "Omarchy Synchro",
+      "version": "0.1.0",
+      "commit": "3dc0e9df06822b9b8cfcb846551626a2796415fb",
+      "source": "https://github.com/harel/omarchy-synchro.git"
+    },
+    {
+      "id": "harshith.system-monitor",
+      "name": "System Monitor",
+      "version": "1.2.0",
+      "commit": "60baf04f3122611a1da8c316d1ea5f41b7125d58",
+      "source": "https://github.com/Harshith292002/omarchy-system-monitor.git"
+    },
+    {
+      "id": "io.github.anooplamba.workspace-preview",
+      "name": "Workspace Peek",
+      "version": "1.0.1",
+      "commit": "f17b3da06855578e6c136e6cf10a673f59b0bd59",
+      "source": "https://github.com/AnoopLamba/omarchy-workspace-preview.git"
+    },
+    {
+      "id": "io.github.aswenia.omacord",
+      "name": "omacord",
+      "version": "1.0.0",
+      "commit": "7b2fbddcb5059389c24a7399f28d4a702d61732f",
+      "source": "https://github.com/ASwenia/omacord.git"
+    },
+    {
+      "id": "io.github.ctl0v0.outfit",
+      "name": "Outfit",
+      "version": "0.3.2",
+      "commit": "56191148011e0dcbb11f9449361b200dc0545e2e",
+      "source": "https://github.com/ctl0v0/outfit.git"
+    },
+    {
+      "id": "io.github.ferc10110.fresh-tube",
+      "name": "Fresh Tube",
+      "version": "1.3.2",
+      "commit": "6e36873bc12c99c8ff3424f3edcc2253d1704a32",
+      "source": "https://github.com/FerC10110/omarchy-fresh-tube.git"
+    },
+    {
+      "id": "io.github.jeremylanger.omaspotify",
+      "name": "OmaSpotify",
+      "version": "2.0.1",
+      "commit": "2de4676b23bf9e7e3a5b17a83ba7c28672a19a79",
+      "source": "https://github.com/jeremylanger/omaspotify.git"
+    },
+    {
+      "id": "io.github.mshareef-git.omavibes",
+      "name": "OmaVibes",
+      "version": "1.2.0",
+      "commit": "aae7d4cfc8f7ed06a9b6544c425d9497c2f49590",
+      "source": "https://github.com/mshareef-git/omavibes.git"
+    },
+    {
+      "id": "io.github.randazraik.xray",
+      "name": "Omarchy X-Ray",
+      "version": "0.5.0",
+      "commit": "520c1da26a278bede03285df617a50c8e17997b4",
+      "source": "https://github.com/RandaZraik/omarchy-xray.git"
+    },
+    {
+      "id": "io.github.rr-codebase.wallpaper-weather",
+      "name": "Wallpaper Weather",
+      "version": "1.1.0",
+      "commit": "c111380ec123f7dcf7d2449c0546dfc6f7e61d94",
+      "source": "https://github.com/RR-CodeBase/omarchy-wallpaper-weather.git"
+    },
+    {
+      "id": "io.github.sirjul1337.lock-explorer",
+      "name": "Lock Screen Explorer",
+      "version": "1.9.1",
+      "commit": "ea73799fee87af4bad5941f118bcda1317e57cb4",
+      "source": "https://github.com/SirJul1337/omarchy-lock-explorer.git"
+    },
+    {
+      "id": "io.github.twiking.omasettings",
+      "name": "OmaSettings",
+      "version": "1.3.0",
+      "commit": "72cfe1640aaece2fef39e4dd155289510f07b2a8",
+      "source": "https://github.com/twiking/omasettings.git"
+    },
+    {
+      "id": "io.github.whiskeytuesday.custom-font",
+      "name": "Custom Font",
+      "version": "0.1.0",
+      "commit": "b98b404731cee3da8a20b4f297f8940e80d7d097",
+      "source": "https://github.com/WhiskeyTuesday/om-custom-font.git"
+    },
+    {
+      "id": "jampick.system-update",
+      "name": "Update Review",
+      "version": "1.3.0",
+      "commit": "bfe45cece0325a11dc3cbd68cde94bf653ec2190",
+      "source": "https://github.com/jampick/omarchy-update-review.git"
+    },
+    {
+      "id": "jankeesvw.notification-center",
+      "name": "Notification Center",
+      "version": "1.1.0",
+      "commit": "e4c4568daaf93751097f86a79f98b35c4c00da44",
+      "source": "https://github.com/jankeesvw/omarchy-notification-center.git"
+    },
+    {
+      "id": "jrmmhm.pocket",
+      "name": "Pocket",
+      "version": "0.4.1",
+      "commit": "ec3f769ce16b446ca38191d1d480a7a7ac2a1533",
+      "source": "https://github.com/jrmmhm/omarchy-pocket.git"
+    },
+    {
+      "id": "kairos.globe-guesser",
+      "name": "Globe Guesser",
+      "version": "1.1.0",
+      "commit": "e4e2be957f8e529577d2fecd758203078eb3fe9a",
+      "source": "https://github.com/kairos-tech-oh/omarchy-globe-guesser.git"
+    },
+    {
+      "id": "luneth90.keycade",
+      "name": "Keycade",
+      "version": "1.0.1",
+      "commit": "80e6b791bc96a5f23d6dedd5fb9d7e7d109921fd",
+      "source": "https://github.com/luneth90/keycade.git"
+    },
+    {
+      "id": "ninepointlabs.spotify",
+      "name": "Spotify",
+      "version": "0.1.0",
+      "commit": "18e1138f9a4c2636546a0b5d40aa7462309351f8",
+      "source": "https://github.com/ninepointlabs/omarchy-spotify.git"
+    },
+    {
+      "id": "omaplug",
+      "name": "Plugin Manager",
+      "version": "1.6.5",
+      "commit": "9da73fc13fc2027be5b44915b4ab89440beb74ab",
+      "source": "https://github.com/fross100/omaplug.git"
+    },
+    {
+      "id": "pretty.omagen",
+      "name": "Omagen",
+      "version": "2.0.0",
+      "commit": "1a00ad2708e851f23c1a517404aa2924763e7041",
+      "source": "https://github.com/prettyletto/omagen.git"
+    },
+    {
+      "id": "rosakodu.dock",
+      "name": "Dock",
+      "version": "1.8.25",
+      "commit": "3c7af7ceb65c1ea130f157adc5829c0cdd5590f2",
+      "source": "https://github.com/rosakodu/omarchy-dock.git"
+    },
+    {
+      "id": "stappmus.lyrics",
+      "name": "Omasing",
+      "version": "0.1.5",
+      "commit": "954e8005917829c996e8d4602db5c14b53a7b7c9",
+      "source": "https://github.com/stappmus/Omasing.git"
+    },
+    {
+      "id": "touchtype",
+      "name": "Touch Typing Trainer",
+      "version": "2.0.0",
+      "commit": "bff59477ca3feab4ed7f2c6a94bb79497b327ed1",
+      "source": "https://github.com/toha82-tech/touchtype.git"
+    },
+    {
+      "id": "ussego.otoru",
+      "name": "Otoru",
+      "version": "2.1.1",
+      "commit": "ddcb6c8add91f05c8d9f545e45254725239e6812",
+      "source": "https://github.com/ussego/otoru.git"
+    },
+    {
+      "id": "wmfeht.border-fx",
+      "name": "Border FX",
+      "version": "0.2.1",
+      "commit": "3a5a14ba6dd9649a71329a7759f48ed0bbfc0642",
+      "source": "https://github.com/wmfeht/omarchy-border-fx.git"
+    }
+  ]
+}
