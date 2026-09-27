@@ -23,8 +23,9 @@ hl.config({
     },
     dim_inactive = true,
     glow = {
-      range = 3,
-      render_power = 1,
+      enabled = true,
+      range = 50,
+      render_power = 4,
     },
     shadow = {
       enabled = true,

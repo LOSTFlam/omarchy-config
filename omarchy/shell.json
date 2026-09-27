@@ -4,29 +4,29 @@
     "layout": {
       "center": [
         {
-          "id": "io.github.jeremylanger.omaspotify",
-          "deviceName": "OmaSpotify",
-          "idleShutdownMinutes": 15,
-          "showMiniPlayer": "On",
-          "showVinylRecord": "On",
-          "shortcutPlayer": "Omarchy Music app",
-          "shortcutHints": "On",
-          "showLyrics": "On",
-          "showArtwork": "On",
-          "showTrackTitle": "On",
-          "showArtistName": "On",
-          "showPausedTrack": "On",
-          "scrollBarText": "Off",
-          "scrollSpeed": "1",
-          "maxBarTextWidth": "240",
-          "fixedBarWidth": "Off",
           "audioQuality": "320 kbps",
-          "normalizeVolume": "On",
-          "volumeLevel": "Loud",
           "clientId": "",
+          "deviceName": "OmaSpotify",
+          "fixedBarWidth": "Off",
+          "id": "io.github.jeremylanger.omaspotify",
+          "idleShutdownMinutes": 1440,
+          "libraryFilter": "all",
           "librarySort": "library",
           "libraryView": "list",
-          "libraryFilter": "all"
+          "maxBarTextWidth": "240",
+          "normalizeVolume": "On",
+          "scrollBarText": "On",
+          "scrollSpeed": "1",
+          "shortcutHints": "On",
+          "shortcutPlayer": "Omarchy Music app",
+          "showArtistName": "On",
+          "showArtwork": "On",
+          "showLyrics": "On",
+          "showMiniPlayer": "On",
+          "showPausedTrack": "On",
+          "showTrackTitle": "On",
+          "showVinylRecord": "Off",
+          "volumeLevel": "Loud"
         },
         {
           "id": "crmne.lyrics"
@@ -36,7 +36,9 @@
         },
         {
           "id": "omacom.elsewhen",
-          "zones": "Moscow|Europe/Moscow, Tokyo|Asia/Tokyo, Honolulu|Pacific/Honolulu, Los Angeles|America/Los_Angeles, New York|America/New_York"
+          "zones": "Moscow|Europe/Moscow, Tokyo|Asia/Tokyo, Honolulu|Pacific/Honolulu, Los Angeles|America/Los_Angeles, New York|America/New_York",
+          "units": "C",
+          "hour24": false
         },
         {
           "format": "HH:mm",
@@ -51,44 +53,45 @@
           "id": "omarchy.keyboard-layout"
         },
         {
-          "id": "prusso.bisaiko"
+          "id": "io.github.randazraik.xray"
         },
         {
-          "id": "gladimdim.config-sync"
-        },
-        {
-          "id": "omarchy.tray"
+          "id": "coding-sparrow.cloudflare-warp"
         }
       ],
       "left": [
+        {
+          "id": "rosakodu.dock"
+        },
+        {
+          "id": "harshith.system-monitor",
+          "barMode": "Both"
+        },
         {
           "id": "omarchy.menu"
         },
         {
           "id": "io.github.anooplamba.workspace-preview"
+        },
+        {
+          "id": "gladimdim.config-sync"
         }
       ],
       "right": [
         {
-          "id": "omarchy.spacer"
+          "id": "omarchy.tray"
         },
         {
-          "id": "io.github.ferc10110.fresh-tube"
+          "id": "omarchy.spacer"
         },
         {
           "id": "alexzeitler.ytdlp"
         },
         {
-          "id": "co.klair.wallarchy"
+          "id": "ussego.otoru"
         },
         {
-          "id": "io.github.rr-codebase.wallpaper-weather"
-        },
-        {
-          "id": "omarchy.agents"
-        },
-        {
-          "id": "jankeesvw.text-transform"
+          "id": "io.github.ferc10110.fresh-tube"
         },
         {
           "id": "io.github.mshareef-git.omavibes"
@@ -97,7 +100,19 @@
           "id": "touchtype"
         },
         {
+          "id": "omarchy.agents"
+        },
+        {
+          "id": "io.github.rr-codebase.wallpaper-weather"
+        },
+        {
           "id": "io.github.ctl0v0.outfit"
+        },
+        {
+          "id": "co.klair.wallarchy"
+        },
+        {
+          "id": "gotar.omarchy-themes"
         },
         {
           "id": "crmne.hyprmoncfg"
@@ -116,6 +131,13 @@
         },
         {
           "id": "omarchy.power"
+        },
+        {
+          "id": "jrmmhm.pocket",
+          "members": "alexzeitler.ytdlp, ussego.otoru, io.github.ferc10110.fresh-tube, io.github.mshareef-git.omavibes, touchtype, io.github.rr-codebase.wallpaper-weather, io.github.jcarcinogen.rice-bar"
+        },
+        {
+          "id": "omarchy.emojis"
         }
       ]
     },
@@ -142,11 +164,11 @@
       "id": "wmfeht.border-fx"
     },
     {
-      "id": "io.github.sirjul1337.lock-explorer",
       "boot": "eyes",
+      "design": "poster",
+      "id": "io.github.sirjul1337.lock-explorer",
       "unlock": "fade",
-      "unlockMs": 800,
-      "design": "poster"
+      "unlockMs": 800
     },
     {
       "id": "bobbynicholas.omaland"
@@ -156,6 +178,9 @@
     },
     {
       "id": "luneth90.keycade"
+    },
+    {
+      "id": "omarchy.clipboard"
     }
   ],
   "version": 1
