@@ -30,7 +30,7 @@ hl.config({
     rounding_power = 10.00,
     shadow = {
       enabled = true,
-      range = 16,
+      range = 1,
       render_power = 1,
     },
   },

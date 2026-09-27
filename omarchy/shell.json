@@ -36,7 +36,7 @@
         },
         {
           "hour24": false,
-          "id": "omacom.elsewhen",
+          "id": "omarchy.elsewhen",
           "units": "C",
           "zones": "Moscow|Europe/Moscow, Tokyo|Asia/Tokyo, Honolulu|Pacific/Honolulu, Los Angeles|America/Los_Angeles, New York|America/New_York"
         },
@@ -47,13 +47,13 @@
           "verticalFormat": "HH\n—\nmm"
         },
         {
-          "id": "omarchy.system-update"
-        },
-        {
           "id": "omarchy.keyboard-layout"
         },
         {
           "id": "io.github.randazraik.xray"
+        },
+        {
+          "id": "omarchy.system-update"
         }
       ],
       "left": [
@@ -100,34 +100,34 @@
           "id": "omarchy.agents"
         },
         {
-          "activeProfile": "islands",
-          "border": true,
-          "gap": 4,
           "id": "io.github.jcarcinogen.rice-bar",
-          "opacity": 92,
           "preset": "islands",
-          "profileVersion": 1,
+          "opacity": 100,
+          "radius": 24,
+          "gap": 24,
+          "border": true,
           "profiles": {
+            "omarchy": {
+              "opacity": 100,
+              "radius": 0,
+              "gap": 0,
+              "border": false
+            },
             "islands": {
-              "border": true,
-              "gap": 4,
-              "opacity": 92,
-              "radius": 12
+              "opacity": 100,
+              "radius": 24,
+              "gap": 24,
+              "border": true
             },
             "material": {
-              "border": false,
-              "gap": 8,
               "opacity": 92,
-              "radius": 20
-            },
-            "omarchy": {
-              "border": false,
-              "gap": 0,
-              "opacity": 100,
-              "radius": 0
+              "radius": 20,
+              "gap": 8,
+              "border": false
             }
           },
-          "radius": 12
+          "profileVersion": 1,
+          "activeProfile": "islands"
         },
         {
           "id": "gotar.omarchy-themes"
