@@ -103,9 +103,6 @@
           "id": "omarchy.agents"
         },
         {
-          "id": "io.github.rr-codebase.wallpaper-weather"
-        },
-        {
           "id": "gotar.omarchy-themes"
         },
         {
@@ -148,12 +145,10 @@
     "transparent": false
   },
   "cloneSourceRestores": [
-    "io.github.sirjul1337.lock-explorer",
-    "io.github.rr-codebase.wallpaper-weather"
+    "io.github.sirjul1337.lock-explorer"
   ],
   "disabledPlugins": [
-    "omarchy.lock",
-    "omarchy.background"
+    "omarchy.lock"
   ],
   "idle": {
     "lock": 600,
@@ -168,7 +163,6 @@
     },
     {
       "id": "io.github.sirjul1337.lock-explorer",
-      "boot": "snapshot:bounce",
       "design": "bounce",
       "unlock": "fade",
       "unlockMs": 800,
@@ -180,7 +174,8 @@
         "weather",
         "bounce",
         "motion"
-      ]
+      ],
+      "boot": "follow"
     },
     {
       "id": "bobbynicholas.omaland"
