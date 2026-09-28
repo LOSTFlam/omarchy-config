@@ -169,30 +169,40 @@ hl.config({
     animate_manual_resizes = true,
     animate_mouse_windowdragging = true,
   },
+
+  cursor = {
+    inactive_timeout = 5,
+  },
 })
 
-hl.animation({ leaf = "windowsMove", enabled = true, speed = 0.5, bezier = "quick" })
-hl.animation({ leaf = "fadeDim", enabled = true, speed = 1, bezier = "easeInOutCubic" })
-hl.animation({ leaf = "fadeShadow", enabled = true, speed = 0.8, bezier = "quick" })
-hl.animation({ leaf = "fadePopupsIn", enabled = true, speed = 1, bezier = "quick" })
-hl.animation({ leaf = "fadePopupsOut", enabled = true, speed = 0.7, bezier = "almostLinear" })
-hl.animation({ leaf = "fadeDpms", enabled = true, speed = 5, bezier = "easeOutQuint" })
-hl.animation({ leaf = "zoomFactor", enabled = true, speed = 1, spring = "bouncy" })
-hl.animation({ leaf = "monitorAdded", enabled = true, speed = 2, bezier = "quick" })
-hl.animation({ leaf = "workspacesIn", enabled = true, speed = 1.5, bezier = "easeOutBack", style = "slidefade 20%" })
-hl.animation({ leaf = "workspacesOut", enabled = true, speed = 1.5, bezier = "easeOutBack", style = "slidefade 20%" })
+hl.animation({ leaf = "windowsMove", enabled = true, speed = 1, bezier = "quick" })
+hl.animation({ leaf = "fadeDim", enabled = true, speed = 2.5, bezier = "easeInOutCubic" })
+hl.animation({ leaf = "fadeShadow", enabled = true, speed = 2, bezier = "quick" })
+hl.animation({ leaf = "fadePopupsIn", enabled = true, speed = 2, bezier = "quick" })
+hl.animation({ leaf = "fadePopupsOut", enabled = true, speed = 1.6, bezier = "almostLinear" })
+hl.animation({ leaf = "fadeDpms", enabled = true, speed = 8, bezier = "easeOutQuint" })
+hl.animation({ leaf = "zoomFactor", enabled = true, speed = 3, spring = "bouncy" })
+hl.animation({ leaf = "monitorAdded", enabled = true, speed = 5, bezier = "quick" })
+hl.animation({ leaf = "workspacesIn", enabled = true, speed = 3.5, bezier = "easeOutBack", style = "slidefade 20%" })
+hl.animation({ leaf = "workspacesOut", enabled = true, speed = 3.5, bezier = "easeOutBack", style = "slidefade 20%" })
 hl.animation({ leaf = "borderangle", enabled = true, speed = 60, bezier = "linear", style = "loop" })
+hl.animation({ leaf = "specialWorkspace", enabled = true, speed = 3.5, bezier = "easeOutBack", style = "slidefadevert 20%" })
+hl.animation({ leaf = "specialWorkspaceIn", enabled = true, speed = 3.5, bezier = "easeOutBack", style = "slidefadevert 20%" })
+hl.animation({ leaf = "specialWorkspaceOut", enabled = true, speed = 3.5, bezier = "easeOutBack", style = "slidefadevert 20%" })
 
 hl.window_rule({
   name = "fx-video-idle",
   match = { content = "video" },
   idle_inhibit = "fullscreen",
+  opaque = true,
 })
 
 hl.window_rule({
   name = "fx-game-tearing",
   match = { content = "game" },
   immediate = true,
+  opaque = true,
+  nearest_neighbor = true,
 })
 
 hl.window_rule({
@@ -200,6 +210,7 @@ hl.window_rule({
   match = { class = "^(mpv|celluloid|vlc|haruna|smplayer)$" },
   content = "video",
   idle_inhibit = "focus",
+  opaque = true,
 })
 
 hl.window_rule({
@@ -211,34 +222,33 @@ hl.window_rule({
 })
 
 hl.layer_rule({
-  name = "fx-layer-bar",
   match = { namespace = "^(omarchy-bar|omarchy-rice-bar)$" },
   no_anim = false,
   animation = "slide top",
   blur = true,
+  blur_popups = true,
   ignore_alpha = 0.5,
 })
 
 hl.layer_rule({
-  name = "fx-layer-dock",
   match = { namespace = "^(omarchy-dock|omarchy-dock-edge)$" },
   no_anim = false,
   animation = "slide bottom",
   blur = true,
+  blur_popups = true,
   ignore_alpha = 0.5,
 })
 
 hl.layer_rule({
-  name = "fx-layer-popups",
   match = { namespace = "^(omarchy-menu|omarchy-clipboard|omarchy-emojis|omarchy-image-selector|omarchy-keyboard-panel|omarchy-reminders)$" },
   no_anim = false,
   animation = "popin 90%",
   blur = true,
+  blur_popups = true,
   ignore_alpha = 0.5,
 })
 
 hl.layer_rule({
-  name = "fx-layer-osd",
   match = { namespace = "omarchy-osd" },
   no_anim = false,
   animation = "popin 85%",
@@ -246,5 +256,22 @@ hl.layer_rule({
   ignore_alpha = 0.4,
 })
 
+hl.layer_rule({
+  match = { namespace = "selection" },
+  no_anim = false,
+  animation = "fade",
+})
+
+hl.layer_rule({
+  match = { namespace = "^(omarchy-speed-test|omarchy-disk-speedtest|omarchy-network-speedtest)$" },
+  no_anim = false,
+  animation = "popin 90%",
+  blur = true,
+  ignore_alpha = 0.5,
+})
+
 hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
-hl.gesture({ fingers = 2, direction = "pinch", action = "cursor_zoom", zoom_level = 1.3, mode = "mult" })
+hl.gesture({ fingers = 3, direction = "vertical", action = "special", workspace_name = "scratchpad" })
+hl.gesture({ fingers = 3, direction = "down", mods = "ALT", action = "close" })
+hl.gesture({ fingers = 3, direction = "up", mods = "ALT", action = "fullscreen" })
+hl.gesture({ fingers = 2, direction = "pinch", action = "cursor_zoom", mode = "live" })
