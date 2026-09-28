@@ -15,7 +15,7 @@ hl.config({
       brightness = 1.00,
       contrast = 1.00,
       noise = 0.00,
-      passes = 5,
+      passes = 3,
       popups = true,
       size = 1,
       special = true,
