@@ -14,10 +14,9 @@ hl.config({
       enabled = true,
       brightness = 1.00,
       contrast = 1.00,
-      noise = 0.00,
-      passes = 3,
+      noise = 0.05,
       popups = true,
-      size = 1,
+      size = 3,
       special = true,
       vibrancy = 0.16,
       vibrancy_darkness = 0.16,
@@ -27,7 +26,7 @@ hl.config({
     dim_special = 0.16,
     dim_strength = 0.16,
     glow = {
-      range = 49,
+      range = 50,
       render_power = 4,
     },
     inactive_opacity = 0.16,
@@ -59,8 +58,18 @@ hl.config({
 hl.config({
   group = {
     groupbar = {
+      disable_when_only = true,
       font_size = 16,
       height = 32,
+      stacked = true,
+    },
+  },
+})
+
+hl.config({
+  input = {
+    touchpad = {
+      scroll_factor = 1.00,
     },
   },
 })
@@ -70,19 +79,25 @@ hl.config({
 -- multiplies with the opacity settings, so 100% renders at 98.5%.
 o.window(".*", { opacity = "1.0 1.0" })
 
--- Animation speed: Omarchy's own set, every speed multiplied by 0.25.
-hl.animation({ leaf = "global", enabled = true, speed = 2.5, bezier = "default" })
-hl.animation({ leaf = "border", enabled = true, speed = 1.3475, bezier = "easeOutQuint" })
-hl.animation({ leaf = "windows", enabled = true, speed = 0.9475, bezier = "easeOutQuint" })
-hl.animation({ leaf = "windowsIn", enabled = true, speed = 1.025, bezier = "easeOutQuint", style = "popin 87%" })
-hl.animation({ leaf = "windowsOut", enabled = true, speed = 0.3725, bezier = "linear", style = "popin 87%" })
-hl.animation({ leaf = "fadeIn", enabled = true, speed = 0.4325, bezier = "almostLinear" })
-hl.animation({ leaf = "fadeOut", enabled = true, speed = 0.365, bezier = "almostLinear" })
-hl.animation({ leaf = "fade", enabled = true, speed = 0.7575, bezier = "quick" })
+-- Animation speed: Omarchy's own set, every speed multiplied by 0.80.
+hl.animation({ leaf = "global", enabled = true, speed = 8, bezier = "default" })
+hl.animation({ leaf = "border", enabled = true, speed = 4.312, bezier = "easeOutQuint" })
+hl.animation({ leaf = "windows", enabled = true, speed = 3.032, bezier = "easeOutQuint" })
+hl.animation({ leaf = "windowsIn", enabled = true, speed = 3.28, bezier = "easeOutQuint", style = "popin 87%" })
+hl.animation({ leaf = "windowsOut", enabled = true, speed = 1.192, bezier = "linear", style = "popin 87%" })
+hl.animation({ leaf = "fadeIn", enabled = true, speed = 1.384, bezier = "almostLinear" })
+hl.animation({ leaf = "fadeOut", enabled = true, speed = 1.168, bezier = "almostLinear" })
+hl.animation({ leaf = "fade", enabled = true, speed = 2.424, bezier = "quick" })
 hl.animation({ leaf = "fadeSwitch", enabled = false })
-hl.animation({ leaf = "layers", enabled = true, speed = 0.9525, bezier = "easeOutQuint" })
-hl.animation({ leaf = "layersIn", enabled = true, speed = 1, bezier = "easeOutQuint", style = "fade" })
-hl.animation({ leaf = "layersOut", enabled = true, speed = 0.375, bezier = "linear", style = "fade" })
-hl.animation({ leaf = "fadeLayersIn", enabled = true, speed = 0.4475, bezier = "almostLinear" })
-hl.animation({ leaf = "fadeLayersOut", enabled = true, speed = 0.3475, bezier = "almostLinear" })
+hl.animation({ leaf = "layers", enabled = true, speed = 3.048, bezier = "easeOutQuint" })
+hl.animation({ leaf = "layersIn", enabled = true, speed = 3.2, bezier = "easeOutQuint", style = "fade" })
+hl.animation({ leaf = "layersOut", enabled = true, speed = 1.2, bezier = "linear", style = "fade" })
+hl.animation({ leaf = "fadeLayersIn", enabled = true, speed = 1.432, bezier = "almostLinear" })
+hl.animation({ leaf = "fadeLayersOut", enabled = true, speed = 1.112, bezier = "almostLinear" })
 hl.animation({ leaf = "workspaces", enabled = false })
+hl.monitor({
+  output = "desc:Lenovo Group Limited 0x9052",
+  mode = "1920x1080@60.00",
+  scale = 1,
+})
+

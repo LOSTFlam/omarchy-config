@@ -54,15 +54,15 @@
     {
       "id": "crmne.hyprmoncfg",
       "name": "hyprmoncfg: Multi-Monitor Manager for Omarchy",
-      "version": "2.4.1",
-      "commit": "174838d53b010c0997d1ce295e4a4df428a765c1",
+      "version": "2.5.0",
+      "commit": "226493b2719d6645eab9d419052850dcb783af4b",
       "source": "https://github.com/crmne/omarchy-hyprmoncfg.git"
     },
     {
       "id": "crmne.lyrics",
       "name": "Lyrics Synced with Music",
       "version": "1.2.5",
-      "commit": "0f23f17d153bbbfb50f3bf877daad72843e8198a",
+      "commit": "30bf4af3c82c1681137fabd21480dd9bfd07c233",
       "source": "https://github.com/crmne/omarchy-lyrics.git"
     },
     {
@@ -243,8 +243,8 @@
     {
       "id": "rosakodu.dock",
       "name": "Dock",
-      "version": "1.8.25",
-      "commit": "3c7af7ceb65c1ea130f157adc5829c0cdd5590f2",
+      "version": "1.8.26",
+      "commit": "467070386fe60e173295020d3911176202b3e0c9",
       "source": "https://github.com/rosakodu/omarchy-dock.git"
     },
     {

@@ -60,24 +60,191 @@ hl.config({
 
     glow = {
       enabled = false,
+      range = 50,
       render_power = 1,
     },
   },
+
+  dwindle = {
+    smart_split = true,
+  },
 })
 
-hl.animation({ leaf = "global", enabled = true, speed = 20, bezier = "default" })
-hl.animation({ leaf = "border", enabled = true, speed = 10.78, bezier = "easeOutQuint" })
-hl.animation({ leaf = "windows", enabled = true, speed = 7.58, bezier = "easeOutQuint" })
-hl.animation({ leaf = "windowsIn", enabled = true, speed = 8.2, bezier = "easeOutQuint", style = "popin 87%" })
-hl.animation({ leaf = "windowsOut", enabled = true, speed = 2.98, bezier = "linear", style = "popin 87%" })
-hl.animation({ leaf = "fadeIn", enabled = true, speed = 3.46, bezier = "almostLinear" })
-hl.animation({ leaf = "fadeOut", enabled = true, speed = 2.92, bezier = "almostLinear" })
-hl.animation({ leaf = "fade", enabled = true, speed = 6.06, bezier = "quick" })
+hl.animation({ leaf = "global", enabled = true, speed = 40, bezier = "default" })
+hl.animation({ leaf = "border", enabled = true, speed = 21.56, bezier = "easeOutQuint" })
+hl.animation({ leaf = "windows", enabled = true, speed = 15.16, bezier = "easeOutQuint" })
+hl.animation({ leaf = "windowsIn", enabled = true, speed = 16.4, bezier = "easeOutQuint", style = "popin 87%" })
+hl.animation({ leaf = "windowsOut", enabled = true, speed = 5.96, bezier = "linear", style = "popin 87%" })
+hl.animation({ leaf = "fadeIn", enabled = true, speed = 6.92, bezier = "almostLinear" })
+hl.animation({ leaf = "fadeOut", enabled = true, speed = 5.84, bezier = "almostLinear" })
+hl.animation({ leaf = "fade", enabled = true, speed = 12.12, bezier = "quick" })
 hl.animation({ leaf = "fadeSwitch", enabled = false })
-hl.animation({ leaf = "layers", enabled = true, speed = 7.62, bezier = "easeOutQuint" })
-hl.animation({ leaf = "layersIn", enabled = true, speed = 8, bezier = "easeOutQuint", style = "fade" })
-hl.animation({ leaf = "layersOut", enabled = true, speed = 3, bezier = "linear", style = "fade" })
-hl.animation({ leaf = "fadeLayersIn", enabled = true, speed = 3.58, bezier = "almostLinear" })
-hl.animation({ leaf = "fadeLayersOut", enabled = true, speed = 2.78, bezier = "almostLinear" })
+hl.animation({ leaf = "layers", enabled = true, speed = 15.24, bezier = "easeOutQuint" })
+hl.animation({ leaf = "layersIn", enabled = true, speed = 16, bezier = "easeOutQuint", style = "fade" })
+hl.animation({ leaf = "layersOut", enabled = true, speed = 6, bezier = "linear", style = "fade" })
+hl.animation({ leaf = "fadeLayersIn", enabled = true, speed = 7.16, bezier = "almostLinear" })
+hl.animation({ leaf = "fadeLayersOut", enabled = true, speed = 5.56, bezier = "almostLinear" })
 hl.animation({ leaf = "workspaces", enabled = false })
 -- <<< omaland managed block <<<
+
+hl.curve("easeOutBack", { type = "bezier", points = { { 0.34, 1.3 }, { 0.64, 1 } } })
+hl.curve("bouncy", { type = "spring", mass = 1, stiffness = 240, dampening = 22 })
+
+local function active_border_gradient()
+  local current = hl.get_config("general:col.active_border")
+  local first = current
+  if type(current) == "table" then
+    first = current.colors and current.colors[1]
+  end
+
+  local r, g, b, a
+  if type(first) == "number" then
+    a = math.floor(first / 16777216) % 256
+    r = math.floor(first / 65536) % 256
+    g = math.floor(first / 256) % 256
+    b = first % 256
+  elseif type(first) == "string" then
+    local hex = first:match("0[xX](%x+)")
+    if hex then
+      if #hex == 6 then
+        hex = "ff" .. hex
+      end
+      if #hex == 8 then
+        a = tonumber(hex:sub(1, 2), 16)
+        r = tonumber(hex:sub(3, 4), 16)
+        g = tonumber(hex:sub(5, 6), 16)
+        b = tonumber(hex:sub(7, 8), 16)
+      end
+    else
+      hex = first:match("#(%x+)") or first:match("rgba?%((%x+)%)")
+      if hex and #hex >= 6 then
+        if #hex == 6 then
+          hex = "ff" .. hex
+        end
+        r = tonumber(hex:sub(1, 2), 16)
+        g = tonumber(hex:sub(3, 4), 16)
+        b = tonumber(hex:sub(5, 6), 16)
+        a = tonumber(hex:sub(7, 8), 16)
+      end
+    end
+  end
+
+  if not r or not a then
+    return nil
+  end
+
+  local function mix(c)
+    return math.floor(c + (255 - c) * 0.5 + 0.5)
+  end
+
+  local function rgba(rr, gg, bb, aa)
+    return string.format("rgba(%02x%02x%02x%02x)", rr, gg, bb, aa)
+  end
+
+  return {
+    colors = { rgba(r, g, b, a), rgba(mix(r), mix(g), mix(b), a) },
+    angle = 135,
+  }
+end
+
+local gradient = active_border_gradient()
+
+hl.config({
+  general = {
+    resize_on_border = true,
+    allow_tearing = true,
+    col = gradient and { active_border = gradient } or nil,
+  },
+
+  group = gradient and { col = { border_active = gradient } } or nil,
+
+  decoration = {
+    motion_blur = {
+      enabled = true,
+      samples = 10,
+    },
+  },
+
+  misc = {
+    animate_manual_resizes = true,
+    animate_mouse_windowdragging = true,
+  },
+})
+
+hl.animation({ leaf = "windowsMove", enabled = true, speed = 0.5, bezier = "quick" })
+hl.animation({ leaf = "fadeDim", enabled = true, speed = 1, bezier = "easeInOutCubic" })
+hl.animation({ leaf = "fadeShadow", enabled = true, speed = 0.8, bezier = "quick" })
+hl.animation({ leaf = "fadePopupsIn", enabled = true, speed = 1, bezier = "quick" })
+hl.animation({ leaf = "fadePopupsOut", enabled = true, speed = 0.7, bezier = "almostLinear" })
+hl.animation({ leaf = "fadeDpms", enabled = true, speed = 5, bezier = "easeOutQuint" })
+hl.animation({ leaf = "zoomFactor", enabled = true, speed = 1, spring = "bouncy" })
+hl.animation({ leaf = "monitorAdded", enabled = true, speed = 2, bezier = "quick" })
+hl.animation({ leaf = "workspacesIn", enabled = true, speed = 1.5, bezier = "easeOutBack", style = "slidefade 20%" })
+hl.animation({ leaf = "workspacesOut", enabled = true, speed = 1.5, bezier = "easeOutBack", style = "slidefade 20%" })
+hl.animation({ leaf = "borderangle", enabled = true, speed = 60, bezier = "linear", style = "loop" })
+
+hl.window_rule({
+  name = "fx-video-idle",
+  match = { content = "video" },
+  idle_inhibit = "fullscreen",
+})
+
+hl.window_rule({
+  name = "fx-game-tearing",
+  match = { content = "game" },
+  immediate = true,
+})
+
+hl.window_rule({
+  name = "fx-media-idle",
+  match = { class = "^(mpv|celluloid|vlc|haruna|smplayer)$" },
+  content = "video",
+  idle_inhibit = "focus",
+})
+
+hl.window_rule({
+  name = "fx-modal",
+  match = { modal = true },
+  center = true,
+  dim_around = true,
+  animation = "popin 80%",
+})
+
+hl.layer_rule({
+  name = "fx-layer-bar",
+  match = { namespace = "^(omarchy-bar|omarchy-rice-bar)$" },
+  no_anim = false,
+  animation = "slide top",
+  blur = true,
+  ignore_alpha = 0.5,
+})
+
+hl.layer_rule({
+  name = "fx-layer-dock",
+  match = { namespace = "^(omarchy-dock|omarchy-dock-edge)$" },
+  no_anim = false,
+  animation = "slide bottom",
+  blur = true,
+  ignore_alpha = 0.5,
+})
+
+hl.layer_rule({
+  name = "fx-layer-popups",
+  match = { namespace = "^(omarchy-menu|omarchy-clipboard|omarchy-emojis|omarchy-image-selector|omarchy-keyboard-panel|omarchy-reminders)$" },
+  no_anim = false,
+  animation = "popin 90%",
+  blur = true,
+  ignore_alpha = 0.5,
+})
+
+hl.layer_rule({
+  name = "fx-layer-osd",
+  match = { namespace = "omarchy-osd" },
+  no_anim = false,
+  animation = "popin 85%",
+  blur = true,
+  ignore_alpha = 0.4,
+})
+
+hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
+hl.gesture({ fingers = 2, direction = "pinch", action = "cursor_zoom", zoom_level = 1.3, mode = "mult" })
