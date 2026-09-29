@@ -243,8 +243,8 @@
     {
       "id": "rosakodu.dock",
       "name": "Dock",
-      "version": "1.8.26",
-      "commit": "467070386fe60e173295020d3911176202b3e0c9",
+      "version": "1.8.27",
+      "commit": "ba0b21b7557cddff11e8d34e232c9cb652df5081",
       "source": "https://github.com/rosakodu/omarchy-dock.git"
     },
     {

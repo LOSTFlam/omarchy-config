@@ -82,6 +82,9 @@
       ],
       "right": [
         {
+          "id": "omarchy.tray"
+        },
+        {
           "id": "omarchy.spacer"
         },
         {
