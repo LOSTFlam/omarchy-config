@@ -34,11 +34,12 @@ pcall(require, "hypr.border-fx")
 -- Load settings written by OmaSettings (omasettings:managed).
 require("hypr.omasettings")
 
--- Added by hyprmoncfg: its generated monitor rules load last, so nothing before this can override the applied layout.
-do local path = os.getenv("HOME") .. "/.config/hypr/hyprmoncfg-monitors.lua"; local file = io.open(path, "r"); if file then file:close(); dofile(path) end end
 
 -- >>> omaland managed block >>>
 -- Written by Omaland. Safe to hand-edit: Omaland re-reads this block
 -- every time it opens, and only ever rewrites what's between the fences.
 o.window(".*", { opacity = "1 1" })
 -- <<< omaland managed block <<<
+
+-- Added by hyprmoncfg: its generated monitor rules load last, so nothing before this can override the applied layout.
+do local path = os.getenv("HOME") .. "/.config/hypr/hyprmoncfg-monitors.lua"; local file = io.open(path, "r"); if file then file:close(); dofile(path) end end

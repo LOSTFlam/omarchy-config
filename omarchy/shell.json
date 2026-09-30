@@ -148,9 +148,6 @@
           "radius": 24
         },
         {
-          "id": "io.github.rr-codebase.wallpaper-weather"
-        },
-        {
           "id": "jrmmhm.pocket",
           "members": "alexzeitler.ytdlp, ussego.otoru, io.github.ferc10110.fresh-tube, io.github.mshareef-git.omavibes, touchtype, io.github.jcarcinogen.rice-bar, io.github.rr-codebase.wallpaper-weather"
         },
@@ -187,12 +184,10 @@
     "transparent": true
   },
   "cloneSourceRestores": [
-    "io.github.sirjul1337.lock-explorer",
-    "io.github.rr-codebase.wallpaper-weather"
+    "io.github.sirjul1337.lock-explorer"
   ],
   "disabledPlugins": [
-    "omarchy.lock",
-    "omarchy.background"
+    "omarchy.lock"
   ],
   "idle": {
     "lock": 540,
