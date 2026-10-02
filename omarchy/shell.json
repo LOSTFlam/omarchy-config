@@ -148,6 +148,9 @@
           "activeProfile": "islands"
         },
         {
+          "id": "io.github.rr-codebase.wallpaper-weather"
+        },
+        {
           "id": "jrmmhm.pocket",
           "members": "alexzeitler.ytdlp, ussego.otoru, io.github.ferc10110.fresh-tube, io.github.mshareef-git.omavibes, touchtype, io.github.jcarcinogen.rice-bar, io.github.rr-codebase.wallpaper-weather"
         },
@@ -184,10 +187,12 @@
     "transparent": true
   },
   "cloneSourceRestores": [
-    "io.github.sirjul1337.lock-explorer"
+    "io.github.sirjul1337.lock-explorer",
+    "io.github.rr-codebase.wallpaper-weather"
   ],
   "disabledPlugins": [
-    "omarchy.lock"
+    "omarchy.lock",
+    "omarchy.background"
   ],
   "idle": {
     "lock": 540,
