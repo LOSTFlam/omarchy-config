@@ -55,21 +55,21 @@
       "id": "crmne.hyprmoncfg",
       "name": "hyprmoncfg: Multi-Monitor Manager for Omarchy",
       "version": "2.7.0",
-      "commit": "326e094a3e9be2532089acf51f1ec7a1006a9742",
+      "commit": "193e5611f934eec42460ef75f3f46c2a8bd0252a",
       "source": "https://github.com/crmne/omarchy-hyprmoncfg.git"
     },
     {
       "id": "crmne.lyrics",
       "name": "Lyrics Synced with Music",
       "version": "1.2.5",
-      "commit": "1b86d186de8cd79538899f5218985bba3804f61e",
+      "commit": "92b211230bd864ca58d0ef0a01c950b35a28b717",
       "source": "https://github.com/crmne/omarchy-lyrics.git"
     },
     {
       "id": "crmne.mpris",
       "name": "Media Controls + Album Art",
       "version": "1.1.1",
-      "commit": "4ff78a52bd031aea0133472e7321363d0bee1265",
+      "commit": "ef8e3e737830ad409fd954d4273f2a3caee20a1b",
       "source": "https://github.com/crmne/omarchy-mpris.git"
     },
     {
@@ -166,8 +166,8 @@
     {
       "id": "io.github.sirjul1337.lock-explorer",
       "name": "Lock Screen Explorer",
-      "version": "1.9.2",
-      "commit": "f821a5283f8ef05c205127471a504a331fa9c334",
+      "version": "1.9.4",
+      "commit": "b6ed7bded638483bce77604d239e365e16452517",
       "source": "https://github.com/SirJul1337/omarchy-lock-explorer.git"
     },
     {
@@ -195,7 +195,7 @@
       "id": "jankeesvw.notification-center",
       "name": "Notification Center",
       "version": "1.1.0",
-      "commit": "e4c4568daaf93751097f86a79f98b35c4c00da44",
+      "commit": "e90e1d7b2edbbaa25d5b684920875c35a4f8c3f9",
       "source": "https://github.com/jankeesvw/omarchy-notification-center.git"
     },
     {
