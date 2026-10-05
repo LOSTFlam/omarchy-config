@@ -4,33 +4,29 @@
     "layout": {
       "center": [
         {
-          "id": "harshith.system-monitor",
-          "barMode": "Both"
-        },
-        {
-          "id": "io.github.jeremylanger.omaspotify",
-          "deviceName": "OmaSpotify",
-          "idleShutdownMinutes": 1440,
-          "showMiniPlayer": "On",
-          "showVinylRecord": "Off",
-          "shortcutPlayer": "Omarchy Music app",
-          "shortcutHints": "On",
-          "showLyrics": "On",
-          "showArtwork": "On",
-          "showTrackTitle": "On",
-          "showArtistName": "On",
-          "showPausedTrack": "On",
-          "scrollBarText": "On",
-          "scrollSpeed": "1",
-          "maxBarTextWidth": "240",
-          "fixedBarWidth": "Off",
           "audioQuality": "320 kbps",
-          "normalizeVolume": "On",
-          "volumeLevel": "Loud",
           "clientId": "",
+          "deviceName": "OmaSpotify",
+          "fixedBarWidth": "Off",
+          "id": "io.github.jeremylanger.omaspotify",
+          "idleShutdownMinutes": 1440,
+          "libraryFilter": "all",
           "librarySort": "library",
           "libraryView": "list",
-          "libraryFilter": "all"
+          "maxBarTextWidth": "240",
+          "normalizeVolume": "On",
+          "scrollBarText": "On",
+          "scrollSpeed": "1",
+          "shortcutHints": "On",
+          "shortcutPlayer": "Omarchy Music app",
+          "showArtistName": "On",
+          "showArtwork": "On",
+          "showLyrics": "On",
+          "showMiniPlayer": "On",
+          "showPausedTrack": "On",
+          "showTrackTitle": "On",
+          "showVinylRecord": "Off",
+          "volumeLevel": "Loud"
         },
         {
           "id": "crmne.lyrics"
