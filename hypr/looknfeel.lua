@@ -275,3 +275,8 @@ hl.gesture({ fingers = 3, direction = "vertical", action = "special", workspace_
 hl.gesture({ fingers = 3, direction = "down", mods = "ALT", action = "close" })
 hl.gesture({ fingers = 3, direction = "up", mods = "ALT", action = "fullscreen" })
 hl.gesture({ fingers = 2, direction = "pinch", action = "cursor_zoom", mode = "live" })
+
+-- Opt another application in to Omarchy's standard transparency.
+-- Find its class with: hyprctl clients
+-- o.transparent_window("my-app")
+-- o.transparent_window("my-app", "0.9 0.85") -- Custom active/inactive opacity.

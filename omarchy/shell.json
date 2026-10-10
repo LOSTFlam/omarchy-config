@@ -32,13 +32,13 @@
           "id": "crmne.lyrics"
         },
         {
+          "id": "omarchy.keyboard-layout"
+        },
+        {
           "format": "HH:mm",
           "formatAlt": "d MMMM 'W'ww yyyy",
           "id": "omarchy.clock",
           "verticalFormat": "HH\n—\nmm"
-        },
-        {
-          "id": "omarchy.keyboard-layout"
         },
         {
           "hour24": false,
@@ -67,13 +67,10 @@
           "id": "io.github.ctl0v0.outfit"
         },
         {
-          "id": "omarchy.indicators"
-        },
-        {
           "id": "io.github.anooplamba.workspace-preview"
         },
         {
-          "id": "omarchy.agents"
+          "id": "omarchy.indicators"
         },
         {
           "id": "gladimdim.config-sync"
@@ -149,6 +146,9 @@
         {
           "id": "jrmmhm.pocket",
           "members": "alexzeitler.ytdlp, ussego.otoru, io.github.ferc10110.fresh-tube, io.github.mshareef-git.omavibes, touchtype, io.github.jcarcinogen.rice-bar, io.github.rr-codebase.wallpaper-weather"
+        },
+        {
+          "id": "omarchy.agents"
         },
         {
           "id": "gotar.omarchy-themes"
