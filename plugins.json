@@ -166,8 +166,8 @@
     {
       "id": "io.github.sirjul1337.lock-explorer",
       "name": "Lock Screen Explorer",
-      "version": "1.9.4",
-      "commit": "b6ed7bded638483bce77604d239e365e16452517",
+      "version": "1.9.7",
+      "commit": "7faf2cce10e3008f69ad12d66273c81886e4a834",
       "source": "https://github.com/SirJul1337/omarchy-lock-explorer.git"
     },
     {
@@ -195,14 +195,14 @@
       "id": "jankeesvw.notification-center",
       "name": "Notification Center",
       "version": "1.1.0",
-      "commit": "e90e1d7b2edbbaa25d5b684920875c35a4f8c3f9",
+      "commit": "85b2fc72b58d3be2ce1287a68dd117e6939a17fa",
       "source": "https://github.com/jankeesvw/omarchy-notification-center.git"
     },
     {
       "id": "jrmmhm.pocket",
       "name": "Pocket",
-      "version": "0.4.1",
-      "commit": "ec3f769ce16b446ca38191d1d480a7a7ac2a1533",
+      "version": "0.5.0",
+      "commit": "81c90494f812c9f58a66e8a0e68a78c59197c1c0",
       "source": "https://github.com/jrmmhm/omarchy-pocket.git"
     },
     {
@@ -229,8 +229,8 @@
     {
       "id": "omaplug",
       "name": "Plugin Manager",
-      "version": "1.6.5",
-      "commit": "9da73fc13fc2027be5b44915b4ab89440beb74ab",
+      "version": "1.6.6",
+      "commit": "64df56e876846247ded550890c52b7b190776b3e",
       "source": "https://github.com/fross100/omaplug.git"
     },
     {
@@ -243,8 +243,8 @@
     {
       "id": "rosakodu.dock",
       "name": "Dock",
-      "version": "1.8.27",
-      "commit": "ba0b21b7557cddff11e8d34e232c9cb652df5081",
+      "version": "1.8.33",
+      "commit": "5d39dfa32f8ef73c53c114dd610ce82ec817b126",
       "source": "https://github.com/rosakodu/omarchy-dock.git"
     },
     {

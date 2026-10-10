@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Проигрывание фраз крышки (голос: Светлана, Edge-TTS)
+# Стратегия:
+# 1. Ставим флаг /tmp/lid-sound-playing — systemd-suspend.service.d/lid-sound-delay.conf
+#    читает его и приостанавливает suspend до 6 сек, пока фраза играет
+# 2. Убиваем предыдущий звук (защита от наложения)
+# 3. Играем через pw-play
+# 4. Снимаем флаг
+
+LID_STATE="${1:-}"
+AUDIO_DIR="$HOME/.cache/lid-sounds"
+OPEN_AUDIO="$AUDIO_DIR/lid-open.wav"
+CLOSE_AUDIO="$AUDIO_DIR/lid-close.wav"
+LOG_FILE="$HOME/.local/state/lid-sound.log"
+FLAG="/tmp/lid-sound-playing"
+
+mkdir -p "$AUDIO_DIR" "$HOME/.local/state"
+
+# Защита от наложения: убиваем предыдущий звук
+pkill -f "pw-play.*lid-sounds" 2>/dev/null
+
+echo "[$(date '+%H:%M:%S')] state=$LID_STATE" >> "$LOG_FILE"
+
+case "$LID_STATE" in
+    open)
+        # Открытие: играем сразу, флаг не нужен (при open suspend не срабатывает)
+        pw-play "$OPEN_AUDIO" 2>>"$LOG_FILE" &
+        ;;
+    close)
+        # Закрытие: ставим флаг (suspend подождёт), играем, снимаем флаг
+        touch "$FLAG"
+        pw-play "$CLOSE_AUDIO" 2>>"$LOG_FILE"
+        rm -f "$FLAG"
+        ;;
+esac
+
+exit 0

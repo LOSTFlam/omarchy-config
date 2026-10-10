@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Flamquency — анимированный огненный логотип с частицами
+# Использование:
+#   flamquency              бесконечная анимация (Ctrl+C — выход)
+#   flamquency --intro 2.5  проиграть 2.5 сек и выйти
+# Ctrl+C для остановки.
+
+exec ~/.venvs/ascii/bin/python ~/.local/bin/flamquency-particles.py "$@"

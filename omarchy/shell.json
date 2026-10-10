@@ -4,6 +4,27 @@
     "layout": {
       "center": [
         {
+          "id": "omarchy.indicators"
+        },
+        {
+          "id": "crmne.lyrics"
+        },
+        {
+          "hour24": false,
+          "id": "omarchy.elsewhen",
+          "units": "C",
+          "zones": "Moscow|Europe/Moscow, Tokyo|Asia/Tokyo, Honolulu|Pacific/Honolulu, Los Angeles|America/Los_Angeles, New York|America/New_York"
+        },
+        {
+          "format": "HH:mm",
+          "formatAlt": "d MMMM 'W'ww yyyy",
+          "id": "omarchy.clock",
+          "verticalFormat": "HH\n—\nmm"
+        },
+        {
+          "id": "omarchy.keyboard-layout"
+        },
+        {
           "audioQuality": "320 kbps",
           "clientId": "",
           "deviceName": "OmaSpotify",
@@ -29,24 +50,6 @@
           "volumeLevel": "Loud"
         },
         {
-          "id": "crmne.lyrics"
-        },
-        {
-          "id": "omarchy.keyboard-layout"
-        },
-        {
-          "format": "HH:mm",
-          "formatAlt": "d MMMM 'W'ww yyyy",
-          "id": "omarchy.clock",
-          "verticalFormat": "HH\n—\nmm"
-        },
-        {
-          "hour24": false,
-          "id": "omarchy.elsewhen",
-          "units": "C",
-          "zones": "Moscow|Europe/Moscow, Tokyo|Asia/Tokyo, Honolulu|Pacific/Honolulu, Los Angeles|America/Los_Angeles, New York|America/New_York"
-        },
-        {
           "id": "io.github.randazraik.xray"
         },
         {
@@ -68,9 +71,6 @@
         },
         {
           "id": "io.github.anooplamba.workspace-preview"
-        },
-        {
-          "id": "omarchy.indicators"
         },
         {
           "id": "gladimdim.config-sync"
@@ -99,49 +99,49 @@
           "id": "touchtype"
         },
         {
-          "id": "io.github.jcarcinogen.rice-bar",
-          "preset": "islands",
-          "opacity": 100,
-          "radius": 24,
-          "gap": 24,
+          "activeProfile": "islands",
           "border": true,
+          "gap": 24,
+          "id": "io.github.jcarcinogen.rice-bar",
+          "opacity": 100,
+          "preset": "islands",
+          "profileVersion": 1,
           "profiles": {
-            "omarchy": {
-              "opacity": 100,
-              "radius": 0,
-              "gap": 0,
-              "border": false
+            "glow": {
+              "border": true,
+              "gap": 8,
+              "opacity": 82,
+              "radius": 16
             },
             "islands": {
-              "opacity": 100,
-              "radius": 24,
+              "border": true,
               "gap": 24,
-              "border": true
-            },
-            "pills": {
-              "opacity": 90,
-              "radius": 18,
-              "gap": 3,
-              "border": true
+              "opacity": 100,
+              "radius": 24
             },
             "material": {
+              "border": false,
+              "gap": 8,
               "opacity": 92,
-              "radius": 20,
-              "gap": 8,
-              "border": false
+              "radius": 20
             },
-            "glow": {
-              "opacity": 82,
-              "radius": 16,
-              "gap": 8,
-              "border": true
+            "omarchy": {
+              "border": false,
+              "gap": 0,
+              "opacity": 100,
+              "radius": 0
+            },
+            "pills": {
+              "border": true,
+              "gap": 3,
+              "opacity": 90,
+              "radius": 18
             }
           },
-          "profileVersion": 1,
-          "activeProfile": "islands"
+          "radius": 24
         },
         {
-          "id": "io.github.rr-codebase.wallpaper-weather"
+          "id": "omarchy.background"
         },
         {
           "id": "jrmmhm.pocket",
@@ -183,12 +183,10 @@
     "transparent": true
   },
   "cloneSourceRestores": [
-    "io.github.sirjul1337.lock-explorer",
-    "io.github.rr-codebase.wallpaper-weather"
+    "io.github.sirjul1337.lock-explorer"
   ],
   "disabledPlugins": [
-    "omarchy.lock",
-    "omarchy.background"
+    "omarchy.lock"
   ],
   "idle": {
     "lock": 540,

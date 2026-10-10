@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Hook: post-update — выводит Flamquency после обновления системы
+# Omarchy вызывает этот скрипт после omarchy update
+
+~/.local/bin/flamquency
+echo ""
+echo "✓ Обновление завершено — система чистая и быстрая"
