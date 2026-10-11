@@ -99,46 +99,46 @@
           "id": "touchtype"
         },
         {
-          "activeProfile": "islands",
-          "border": true,
-          "gap": 24,
           "id": "io.github.jcarcinogen.rice-bar",
-          "opacity": 100,
           "preset": "islands",
-          "profileVersion": 1,
+          "opacity": 100,
+          "radius": 24,
+          "gap": 24,
+          "border": true,
           "profiles": {
-            "glow": {
-              "border": true,
-              "gap": 8,
-              "opacity": 82,
-              "radius": 16
+            "omarchy": {
+              "opacity": 100,
+              "radius": 0,
+              "gap": 0,
+              "border": false
             },
             "islands": {
-              "border": true,
+              "opacity": 100,
+              "radius": 24,
               "gap": 24,
-              "opacity": 100,
-              "radius": 24
-            },
-            "material": {
-              "border": false,
-              "gap": 8,
-              "opacity": 92,
-              "radius": 20
-            },
-            "omarchy": {
-              "border": false,
-              "gap": 0,
-              "opacity": 100,
-              "radius": 0
+              "border": true
             },
             "pills": {
-              "border": true,
-              "gap": 3,
               "opacity": 90,
-              "radius": 18
+              "radius": 18,
+              "gap": 3,
+              "border": true
+            },
+            "material": {
+              "opacity": 92,
+              "radius": 20,
+              "gap": 8,
+              "border": false
+            },
+            "glow": {
+              "opacity": 82,
+              "radius": 16,
+              "gap": 8,
+              "border": true
             }
           },
-          "radius": 24
+          "profileVersion": 1,
+          "activeProfile": "islands"
         },
         {
           "id": "omarchy.background"
@@ -180,7 +180,7 @@
       ]
     },
     "position": "top",
-    "transparent": true
+    "transparent": false
   },
   "cloneSourceRestores": [
     "io.github.sirjul1337.lock-explorer"
