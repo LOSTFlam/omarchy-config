@@ -171,7 +171,8 @@ hl.config({
   },
 
   cursor = {
-    inactive_timeout = 5,
+    inactive_timeout = 0,
+    enable_hyprcursor = false,
   },
 })
 
